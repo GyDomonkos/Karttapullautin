@@ -1,20 +1,27 @@
 #include "KarttaRunner.h"
 
 KarttaRunner::KarttaRunner(QObject* parent)
-    : QObject(parent) {
+    : QObject(parent)
+{
+    process = new QProcess(this);
 
-    connect(&process, &QProcess::readyReadStandardOutput, [&]() {
-        emit log(process.readAllStandardOutput());
+    connect(process, &QProcess::readyReadStandardOutput, [this]() {
+        emit outputReceived(process->readAllStandardOutput());
     });
 
-    connect(&process,
+    connect(process, &QProcess::readyReadStandardError, [this]() {
+        emit outputReceived(process->readAllStandardError());
+    });
+
+    connect(process,
             QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            [&](int code, QProcess::ExitStatus) {
-                emit finished(code);
-            });
+            [this](int exitCode, QProcess::ExitStatus) {
+        emit finished(exitCode);
+    });
 }
 
-void KarttaRunner::run(const QString& program,
-                       const QStringList& args) {
-    process.start(program, args);
+void KarttaRunner::run(const QString& executablePath,
+                       const QStringList& arguments)
+{
+    process->start(executablePath, arguments);
 }

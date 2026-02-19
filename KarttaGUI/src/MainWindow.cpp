@@ -1,31 +1,64 @@
 #include "MainWindow.h"
+#include "KarttaRunner.h"
 
+#include <QVBoxLayout>
 #include <QPushButton>
 #include <QTextEdit>
-#include <QVBoxLayout>
 #include <QWidget>
+#include <qcoreapplication.h>
 
-MainWindow::MainWindow() {
-    auto* central = new QWidget;
-    auto* layout = new QVBoxLayout;
+MainWindow::MainWindow(QWidget* parent)
+    : QMainWindow(parent)
+{
+    QWidget* central = new QWidget(this);
+    QVBoxLayout* layout = new QVBoxLayout(central);
 
     runButton = new QPushButton("Run Karttapullautin");
-    logBox = new QTextEdit;
-    logBox->setReadOnly(true);
+    outputText = new QTextEdit();
+    outputText->setReadOnly(true);
 
     layout->addWidget(runButton);
-    layout->addWidget(logBox);
+    layout->addWidget(outputText);
 
-    central->setLayout(layout);
     setCentralWidget(central);
 
-    connect(runButton, &QPushButton::clicked,
-            this, &MainWindow::onRunClicked);
+    runner = new KarttaRunner(this);
 
-    setWindowTitle("KarttaGUI");
-    resize(500, 400);
+    connect(runButton, &QPushButton::clicked,
+            this, &MainWindow::startKarttapullautin);
+
+    
+    connect(runner, &KarttaRunner::outputReceived,
+            this, &MainWindow::handleOutput);
+
+    connect(runner, &KarttaRunner::finished,
+            this, &MainWindow::handleFinished);
+
 }
 
-void MainWindow::onRunClicked() {
-    logBox->append("Run button clicked.");
+void MainWindow::startKarttapullautin()
+{
+    runButton->setEnabled(false);
+
+    QString exePath =
+        QCoreApplication::applicationDirPath()
+        + "/karttapullautin/pullauta.exe";
+
+    QStringList args;
+    args << "input.las" << "output_folder";
+
+    runner->run(exePath, args);
+}
+
+void MainWindow::handleOutput(const QString& text)
+{
+    outputText->append(text);
+}
+
+void MainWindow::handleFinished(int exitCode)
+{
+    outputText->append("Finished with exit code: "
+                       + QString::number(exitCode));
+
+    runButton->setEnabled(true);
 }

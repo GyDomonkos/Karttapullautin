@@ -2,19 +2,24 @@
 
 #include <QMainWindow>
 
-class QPushButton;
+class KarttaRunner;
 class QTextEdit;
+class QPushButton;
 
-class MainWindow : public QMainWindow {
+class MainWindow : public QMainWindow
+{
     Q_OBJECT
 
 public:
-    MainWindow();
-
-private:
-    QPushButton* runButton;
-    QTextEdit* logBox;
+    explicit MainWindow(QWidget* parent = nullptr);
 
 private slots:
-    void onRunClicked();
+    void startKarttapullautin();
+    void handleOutput(const QString& text);
+    void handleFinished(int exitCode);
+
+private:
+    KarttaRunner* runner;
+    QTextEdit* outputText;
+    QPushButton* runButton;
 };
