@@ -13,6 +13,9 @@ public:
     void run(const QString& executablePath,
              const QStringList& arguments);
 
+    // Forcefully terminates the running process, if any.
+    void cancel();
+
 signals:
     void outputReceived(const QString&);
     void finished(int exitCode);

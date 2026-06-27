@@ -7,6 +7,7 @@ class KarttaRunner;
 class QTextEdit;
 class QPushButton;
 class QLineEdit;
+class QProgressBar;
 
 class MainWindow : public QMainWindow
 {
@@ -19,6 +20,7 @@ private slots:
     void browseInput();
     void browseOutput();
     void startKarttapullautin();
+    void cancelKarttapullautin();
     void handleOutput(const QString& text);
     void handleFinished(int exitCode);
 
@@ -30,8 +32,14 @@ private:
 
     KarttaRunner* runner;
 
-    QLineEdit* inputEdit;
-    QLineEdit* outputEdit;
-    QTextEdit* outputText;
-    QPushButton* runButton;
+    QLineEdit*    inputEdit;
+    QLineEdit*    outputEdit;
+    QTextEdit*    outputText;
+    QPushButton*  runButton;
+    QPushButton*  cancelButton;
+    QProgressBar* progressBar;
+
+    int  totalTiles;      // LAZ/LAS files found before launch
+    int  completedTiles;  // tiles reported done during processing
+    bool wasCancelled;    // set by cancelKarttapullautin(), read in handleFinished()
 };

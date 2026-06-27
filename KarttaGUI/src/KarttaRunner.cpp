@@ -1,5 +1,5 @@
 #include "KarttaRunner.h"
-#include <qfileinfo.h>
+#include <QFileInfo>
 
 KarttaRunner::KarttaRunner(QObject* parent)
     : QObject(parent)
@@ -29,3 +29,10 @@ void KarttaRunner::run(const QString& executablePath,
     process->start(executablePath, arguments);
 }
 
+void KarttaRunner::cancel()
+{
+    // kill() sends SIGKILL / TerminateProcess — immediate, no clean-up.
+    // Appropriate here since pullauta has no graceful shutdown protocol.
+    if (process->state() != QProcess::NotRunning)
+        process->kill();
+}

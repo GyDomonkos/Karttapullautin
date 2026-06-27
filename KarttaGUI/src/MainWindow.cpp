@@ -4,6 +4,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
+#include <QProgressBar>
 #include <QTextEdit>
 #include <QWidget>
 #include <QFileDialog>
@@ -18,6 +19,9 @@
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
+    , totalTiles(0)
+    , completedTiles(0)
+    , wasCancelled(false)
 {
     QWidget* central = new QWidget(this);
     QVBoxLayout* mainLayout = new QVBoxLayout(central);
@@ -38,8 +42,19 @@ MainWindow::MainWindow(QWidget* parent)
     outputLayout->addWidget(outputEdit);
     outputLayout->addWidget(browseOutputBtn);
 
-    // Run button
-    runButton = new QPushButton("Run Karttapullautin");
+    // Run / Cancel buttons on one row
+    QHBoxLayout* buttonLayout = new QHBoxLayout();
+    runButton    = new QPushButton("Run Karttapullautin");
+    cancelButton = new QPushButton("Cancel");
+    cancelButton->setEnabled(false);
+    buttonLayout->addWidget(runButton);
+    buttonLayout->addWidget(cancelButton);
+
+    // Progress bar — hidden until a run starts
+    progressBar = new QProgressBar();
+    progressBar->setFormat("%v / %m tiles");
+    progressBar->setAlignment(Qt::AlignCenter);
+    progressBar->setVisible(false);
 
     // Output console
     outputText = new QTextEdit();
@@ -47,7 +62,8 @@ MainWindow::MainWindow(QWidget* parent)
 
     mainLayout->addLayout(inputLayout);
     mainLayout->addLayout(outputLayout);
-    mainLayout->addWidget(runButton);
+    mainLayout->addLayout(buttonLayout);
+    mainLayout->addWidget(progressBar);
     mainLayout->addWidget(outputText);
 
     setCentralWidget(central);
@@ -63,6 +79,9 @@ MainWindow::MainWindow(QWidget* parent)
     connect(runButton, &QPushButton::clicked,
             this, &MainWindow::startKarttapullautin);
 
+    connect(cancelButton, &QPushButton::clicked,
+            this, &MainWindow::cancelKarttapullautin);
+
     connect(runner, &KarttaRunner::outputReceived,
             this, &MainWindow::handleOutput);
 
@@ -72,9 +91,6 @@ MainWindow::MainWindow(QWidget* parent)
 
 // ---------------------------------------------------------------------
 // Slot: browseInput
-// Bug fix 1: guard against cancelled dialog (empty string)
-// Bug fix 2: actually store the result in inputEdit
-// Bug fix 3: warn if the folder contains no LAS/LAZ files
 // ---------------------------------------------------------------------
 void MainWindow::browseInput()
 {
@@ -83,7 +99,6 @@ void MainWindow::browseInput()
         "Select Folder Containing LAS/LAZ Files"
     );
 
-    // User cancelled — do nothing
     if (dir.isEmpty())
         return;
 
@@ -94,12 +109,10 @@ void MainWindow::browseInput()
         return;
     }
 
-    // Warn if no LAS/LAZ files are present (non-fatal)
     QStringList lazFilters = { "*.las", "*.laz", "*.LAS", "*.LAZ" };
     if (inputDir.entryList(lazFilters, QDir::Files).isEmpty())
         outputText->append("Warning: no LAS/LAZ files found in selected folder.");
 
-    // Bug fix 2: store the path
     inputEdit->setText(dir);
 }
 
@@ -119,9 +132,6 @@ void MainWindow::browseOutput()
 
 // ---------------------------------------------------------------------
 // Slot: startKarttapullautin
-// Bug fix 4: validate a directory, not a file
-// Bug fix 5: replace QSettings with writeIniValues
-// Bug fix 6: resolve executable name per platform
 // ---------------------------------------------------------------------
 void MainWindow::startKarttapullautin()
 {
@@ -134,7 +144,6 @@ void MainWindow::startKarttapullautin()
         return;
     }
 
-    // Bug fix 4: validate as directories
     if (!QDir(inputFolder).exists())
     {
         outputText->append("Input folder does not exist: " + inputFolder);
@@ -147,37 +156,50 @@ void MainWindow::startKarttapullautin()
         return;
     }
 
+    // Count LAZ/LAS tiles to drive the progress bar
+    QStringList lazFilters = { "*.las", "*.laz", "*.LAS", "*.LAZ" };
+    totalTiles     = QDir(inputFolder).entryList(lazFilters, QDir::Files).count();
+    completedTiles = 0;
+    wasCancelled   = false;
+
+    // Set up the progress bar
+    progressBar->setMinimum(0);
+    progressBar->setMaximum(totalTiles > 0 ? totalTiles : 1);
+    progressBar->setValue(0);
+    progressBar->setVisible(true);
+
+    // Flip button states
     runButton->setEnabled(false);
+    cancelButton->setEnabled(true);
     outputText->clear();
 
-    // Use forward slashes throughout — cross-platform and no escaping needed.
-    // Karttapullautin (Rust) accepts forward slashes on Windows.
+    // Use forward slashes — cross-platform and no escaping needed in the INI
     inputFolder = QDir::fromNativeSeparators(inputFolder);
     outputPath  = QDir::fromNativeSeparators(outputPath);
 
-    // Locate the bundled karttapullautin directory next to this executable
     QString baseDir = QCoreApplication::applicationDirPath() + "/karttapullautin";
     QString iniPath = baseDir + "/pullauta.ini";
 
-    // Bug fix 5: write INI values safely without QSettings
     QMap<QString, QString> iniValues;
-    iniValues["batch"]         = "1";
-    iniValues["lazfolder"]     = inputFolder;
+    iniValues["batch"]          = "1";
+    iniValues["lazfolder"]      = inputFolder;
     iniValues["batchoutfolder"] = outputPath;
 
     if (!writeIniValues(iniPath, iniValues))
     {
         outputText->append("Failed to update pullauta.ini at: " + iniPath);
         runButton->setEnabled(true);
+        cancelButton->setEnabled(false);
+        progressBar->setVisible(false);
         return;
     }
 
     outputText->append("pullauta.ini updated.");
     outputText->append("Input folder : " + inputFolder);
     outputText->append("Output folder: " + outputPath);
+    outputText->append(QString("Tiles found  : %1").arg(totalTiles));
     outputText->append("Launching Karttapullautin...\n");
 
-    // Bug fix 6: platform-aware executable name
 #ifdef Q_OS_WIN
     const QString executable = baseDir + "/pullauta.exe";
 #else
@@ -188,13 +210,66 @@ void MainWindow::startKarttapullautin()
 }
 
 // ---------------------------------------------------------------------
+// Slot: cancelKarttapullautin
+// ---------------------------------------------------------------------
+void MainWindow::cancelKarttapullautin()
+{
+    wasCancelled = true;
+    cancelButton->setEnabled(false);
+    outputText->append("\nCancelling...");
+    runner->cancel();
+}
+
+// ---------------------------------------------------------------------
+// Slot: handleOutput
+// Count tile-completion events to drive the progress bar.
+//
+// Two patterns each mean one tile is done:
+//   "All done!"                          — tile was processed this run
+//   "exists already in output folder"    — tile was skipped (prior run)
+// ---------------------------------------------------------------------
+void MainWindow::handleOutput(const QString& text)
+{
+    outputText->append(text.trimmed());
+
+    int done = text.count("All done!")
+             + text.count("exists already in output folder");
+
+    if (done > 0)
+    {
+        completedTiles = qMin(completedTiles + done, totalTiles);
+        progressBar->setValue(completedTiles);
+    }
+}
+
+// ---------------------------------------------------------------------
+// Slot: handleFinished
+// ---------------------------------------------------------------------
+void MainWindow::handleFinished(int exitCode)
+{
+    if (wasCancelled)
+    {
+        outputText->append("\nRun cancelled.");
+    }
+    else if (exitCode == 0)
+    {
+        outputText->append("\nAll tiles processed successfully.");
+    }
+    else
+    {
+        outputText->append(
+            "\nProcess finished with exit code: " + QString::number(exitCode));
+    }
+
+    // Reset UI
+    wasCancelled = false;
+    runButton->setEnabled(true);
+    cancelButton->setEnabled(false);
+    progressBar->setVisible(false);
+}
+
+// ---------------------------------------------------------------------
 // Private helper: writeIniValues
-//
-// Reads the INI file line by line, replaces lines whose key matches
-// one of the entries in `values`, and writes the file back.
-//
-// This preserves all comments, ordering, and exotic characters that
-// QSettings would otherwise percent-encode or restructure.
 // ---------------------------------------------------------------------
 bool MainWindow::writeIniValues(const QString& iniPath,
                                 const QMap<QString, QString>& values)
@@ -209,11 +284,10 @@ bool MainWindow::writeIniValues(const QString& iniPath,
 
     while (!in.atEnd())
     {
-        QString line     = in.readLine();
-        QString trimmed  = line.trimmed();
-        bool    replaced = false;
+        QString line    = in.readLine();
+        QString trimmed = line.trimmed();
+        bool replaced   = false;
 
-        // Only touch non-commented, non-empty lines
         if (!trimmed.isEmpty() && !trimmed.startsWith('#') && !trimmed.startsWith('%'))
         {
             for (auto it = values.constBegin(); it != values.constEnd(); ++it)
@@ -233,7 +307,6 @@ bool MainWindow::writeIniValues(const QString& iniPath,
     }
     file.close();
 
-    // Append any keys that weren't already present in the file
     for (auto it = values.constBegin(); it != values.constEnd(); ++it)
     {
         if (!updated.contains(it.key()))
@@ -248,22 +321,4 @@ bool MainWindow::writeIniValues(const QString& iniPath,
         out << line << "\n";
 
     return true;
-}
-
-// ---------------------------------------------------------------------
-// Slots: process output / finish
-// ---------------------------------------------------------------------
-void MainWindow::handleOutput(const QString& text)
-{
-    outputText->append(text.trimmed());
-}
-
-void MainWindow::handleFinished(int exitCode)
-{
-    outputText->append(
-        "\nProcess finished with exit code: "
-        + QString::number(exitCode)
-    );
-
-    runButton->setEnabled(true);
 }
