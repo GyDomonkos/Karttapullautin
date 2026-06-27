@@ -1,4 +1,5 @@
 #include "KarttaRunner.h"
+#include <qfileinfo.h>
 
 KarttaRunner::KarttaRunner(QObject* parent)
     : QObject(parent)
@@ -23,5 +24,8 @@ KarttaRunner::KarttaRunner(QObject* parent)
 void KarttaRunner::run(const QString& executablePath,
                        const QStringList& arguments)
 {
+    QFileInfo info(executablePath);
+    process->setWorkingDirectory(info.absolutePath());
     process->start(executablePath, arguments);
 }
+
