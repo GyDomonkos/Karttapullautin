@@ -8,12 +8,15 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
-find_package(OpenCV REQUIRED)
+
+# OpenCV is optional for now — required once image processing features land
+find_package(OpenCV QUIET)
 
 add_executable(KarttaGUI
     src/main.cpp
     src/MainWindow.cpp
     src/KarttaRunner.cpp
+    src/PreviewPanel.cpp
 )
 
 target_include_directories(KarttaGUI PRIVATE
@@ -22,5 +25,12 @@ target_include_directories(KarttaGUI PRIVATE
 
 target_link_libraries(KarttaGUI PRIVATE
     Qt6::Widgets
-    ${OpenCV_LIBS}
 )
+
+if(OpenCV_FOUND)
+    target_link_libraries(KarttaGUI PRIVATE ${OpenCV_LIBS})
+    target_compile_definitions(KarttaGUI PRIVATE HAVE_OPENCV)
+    message(STATUS "OpenCV found — image processing features enabled")
+else()
+    message(STATUS "OpenCV not found — image processing features disabled")
+endif()

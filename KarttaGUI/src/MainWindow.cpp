@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "KarttaRunner.h"
+#include "PreviewPanel.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -7,6 +8,7 @@
 #include <QProgressBar>
 #include <QTextEdit>
 #include <QWidget>
+#include <QSplitter>
 #include <QFileDialog>
 #include <QLineEdit>
 #include <QLabel>
@@ -23,8 +25,10 @@ MainWindow::MainWindow(QWidget* parent)
     , completedTiles(0)
     , wasCancelled(false)
 {
-    QWidget* central = new QWidget(this);
-    QVBoxLayout* mainLayout = new QVBoxLayout(central);
+    // ---- Left panel: controls + console ---------------------------------
+    QWidget* leftPanel = new QWidget();
+    QVBoxLayout* leftLayout = new QVBoxLayout(leftPanel);
+    leftLayout->setContentsMargins(0, 0, 0, 0);
 
     // Input selector
     QHBoxLayout* inputLayout = new QHBoxLayout();
@@ -42,7 +46,7 @@ MainWindow::MainWindow(QWidget* parent)
     outputLayout->addWidget(outputEdit);
     outputLayout->addWidget(browseOutputBtn);
 
-    // Run / Cancel buttons on one row
+    // Run / Cancel buttons
     QHBoxLayout* buttonLayout = new QHBoxLayout();
     runButton    = new QPushButton("Run Karttapullautin");
     cancelButton = new QPushButton("Cancel");
@@ -56,27 +60,41 @@ MainWindow::MainWindow(QWidget* parent)
     progressBar->setAlignment(Qt::AlignCenter);
     progressBar->setVisible(false);
 
-    // Output console
+    // Console output
     outputText = new QTextEdit();
     outputText->setReadOnly(true);
 
-    mainLayout->addLayout(inputLayout);
-    mainLayout->addLayout(outputLayout);
-    mainLayout->addLayout(buttonLayout);
-    mainLayout->addWidget(progressBar);
-    mainLayout->addWidget(outputText);
+    leftLayout->addLayout(inputLayout);
+    leftLayout->addLayout(outputLayout);
+    leftLayout->addLayout(buttonLayout);
+    leftLayout->addWidget(progressBar);
+    leftLayout->addWidget(outputText);
 
-    setCentralWidget(central);
+    // ---- Right panel: map preview ---------------------------------------
+    previewPanel = new PreviewPanel();
 
+    // ---- Splitter: left controls | right preview ------------------------
+    QSplitter* splitter = new QSplitter(Qt::Horizontal);
+    splitter->addWidget(leftPanel);
+    splitter->addWidget(previewPanel);
+
+    // Give the preview roughly 60% of the initial width
+    splitter->setStretchFactor(0, 2);
+    splitter->setStretchFactor(1, 3);
+
+    setCentralWidget(splitter);
+    resize(1200, 700);
+
+    // ---- Connections ----------------------------------------------------
     runner = new KarttaRunner(this);
 
-    connect(browseInputBtn, &QPushButton::clicked,
+    connect(browseInputBtn,  &QPushButton::clicked,
             this, &MainWindow::browseInput);
 
     connect(browseOutputBtn, &QPushButton::clicked,
             this, &MainWindow::browseOutput);
 
-    connect(runButton, &QPushButton::clicked,
+    connect(runButton,    &QPushButton::clicked,
             this, &MainWindow::startKarttapullautin);
 
     connect(cancelButton, &QPushButton::clicked,
@@ -156,24 +174,28 @@ void MainWindow::startKarttapullautin()
         return;
     }
 
-    // Count LAZ/LAS tiles to drive the progress bar
+    // Count tiles for the progress bar
     QStringList lazFilters = { "*.las", "*.laz", "*.LAS", "*.LAZ" };
     totalTiles     = QDir(inputFolder).entryList(lazFilters, QDir::Files).count();
     completedTiles = 0;
     wasCancelled   = false;
 
-    // Set up the progress bar
+    // Progress bar
     progressBar->setMinimum(0);
     progressBar->setMaximum(totalTiles > 0 ? totalTiles : 1);
     progressBar->setValue(0);
     progressBar->setVisible(true);
 
-    // Flip button states
+    // Button states
     runButton->setEnabled(false);
     cancelButton->setEnabled(true);
     outputText->clear();
 
-    // Use forward slashes — cross-platform and no escaping needed in the INI
+    // Point the preview panel at the output folder before launching,
+    // so it scans existing PNGs and watches for new ones
+    previewPanel->setOutputFolder(outputPath);
+
+    // Forward slashes — works on all platforms, no escaping needed in INI
     inputFolder = QDir::fromNativeSeparators(inputFolder);
     outputPath  = QDir::fromNativeSeparators(outputPath);
 
@@ -222,11 +244,6 @@ void MainWindow::cancelKarttapullautin()
 
 // ---------------------------------------------------------------------
 // Slot: handleOutput
-// Count tile-completion events to drive the progress bar.
-//
-// Two patterns each mean one tile is done:
-//   "All done!"                          — tile was processed this run
-//   "exists already in output folder"    — tile was skipped (prior run)
 // ---------------------------------------------------------------------
 void MainWindow::handleOutput(const QString& text)
 {
@@ -261,7 +278,6 @@ void MainWindow::handleFinished(int exitCode)
             "\nProcess finished with exit code: " + QString::number(exitCode));
     }
 
-    // Reset UI
     wasCancelled = false;
     runButton->setEnabled(true);
     cancelButton->setEnabled(false);

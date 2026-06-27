@@ -4,6 +4,7 @@
 #include <QMap>
 
 class KarttaRunner;
+class PreviewPanel;
 class QTextEdit;
 class QPushButton;
 class QLineEdit;
@@ -25,12 +26,11 @@ private slots:
     void handleFinished(int exitCode);
 
 private:
-    // Reads iniPath line-by-line, replaces matching keys, writes back.
-    // Avoids QSettings which percent-encodes keys and restructures sections.
     bool writeIniValues(const QString& iniPath,
                         const QMap<QString, QString>& values);
 
     KarttaRunner* runner;
+    PreviewPanel* previewPanel;
 
     QLineEdit*    inputEdit;
     QLineEdit*    outputEdit;
@@ -39,7 +39,7 @@ private:
     QPushButton*  cancelButton;
     QProgressBar* progressBar;
 
-    int  totalTiles;      // LAZ/LAS files found before launch
-    int  completedTiles;  // tiles reported done during processing
-    bool wasCancelled;    // set by cancelKarttapullautin(), read in handleFinished()
+    int  totalTiles;
+    int  completedTiles;
+    bool wasCancelled;
 };
