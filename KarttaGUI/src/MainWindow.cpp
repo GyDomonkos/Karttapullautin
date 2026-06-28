@@ -61,6 +61,7 @@ MainWindow::MainWindow(QWidget* parent)
     , completedTiles(0)
     , wasCancelled(false)
 {
+    setWindowIcon(QIcon("resources/icon.png"));
     QTabWidget* tabs = new QTabWidget();
 
     // ---- Tab 0: Run ------------------------------------------------------

@@ -377,20 +377,9 @@ void SettingsPanel::loadFromIni(const QString& iniPath)
     setDbl(greenhigh,      "greenhigh");
     setDbl(yellowheight,   "yellowheight");
     setDbl(yellowthresold, "yellowthresold");
-
-    if (ini.contains("greenshades"))
-    {
-        const QStringList parts = ini["greenshades"].split("|");
-        if (!parts.isEmpty())
-        {
-            clearShadeLevels();
-            for (const QString& part : parts)
-            {
-                bool ok; double v = part.toDouble(&ok);
-                if (ok) addShadeLevel(v);
-            }
-        }
-    }
+    // greenshades is intentionally NOT loaded from the INI.
+    // The defaults (0.8 | 1.3 | 2.0) are the user's preferred values and
+    // must not be overwritten by whatever the INI happens to contain.
 
     // Cliffs
     setDbl(cliff1,            "cliff1");
