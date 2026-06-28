@@ -35,3 +35,50 @@ if(OpenCV_FOUND)
 else()
     message(STATUS "OpenCV not found — image processing features disabled")
 endif()
+
+
+
+# ==============================================================================
+# DEPLOYMENT AUTOMATION
+# ==============================================================================
+
+# 1. Install the main executable
+install(TARGETS KarttaGUI RUNTIME DESTINATION bin)
+
+# 2. Copy the external karttapullautin folder (executable + ini)
+# Assumes 'karttapullautin' is in the project root (.. relative to KarttaGUI)
+# Get the absolute path to where CMake thinks the folder is
+get_filename_component(KARTTA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../karttapullautin" ABSOLUTE)
+
+# Print it to the console during generation so you can verify it
+message(STATUS "Looking for karttapullautin folder at: ${KARTTA_DIR}")
+
+# Copy it (if it exists)
+if(EXISTS "${KARTTA_DIR}")
+    install(DIRECTORY "${KARTTA_DIR}" DESTINATION bin)
+    message(STATUS "SUCCESS: Will copy karttapullautin folder!")
+else()
+    message(WARNING "ERROR: Could not find karttapullautin folder at ${KARTTA_DIR} - please check the path!")
+endif()
+
+# 3. Copy OpenCV DLLs automatically
+# We look for the DLLs relative to where CMake found OpenCV
+if(OpenCV_FOUND)
+    # Try to find the bin directory based on the include directory
+    get_filename_component(OPENCV_ROOT "${OpenCV_DIR}/../../.." ABSOLUTE)
+    install(DIRECTORY "${OPENCV_ROOT}/bin/" 
+            DESTINATION bin 
+            FILES_MATCHING PATTERN "*.dll")
+endif()
+
+# 4. Automate windeployqt (Post-Install step)
+# Note: Ensure CMAKE_PREFIX_PATH is set (as in your build.sh)
+set(QT_BIN_DIR "${CMAKE_PREFIX_PATH}/bin") 
+
+install(CODE "
+    message(STATUS \"Running windeployqt to collect Qt dependencies...\")
+    execute_process(
+        COMMAND \"${QT_BIN_DIR}/windeployqt.exe\" \"\${CMAKE_INSTALL_PREFIX}/bin/KarttaGUI.exe\"
+        WORKING_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/bin\"
+    )
+")

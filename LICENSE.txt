@@ -1,0 +1,13 @@
+KarttaGUI - Copyright (c) 2026 Domonkos Gyorffy. All Rights Reserved.
+
+This software and its source code are provided for reference, educational 
+purposes, and private use only.
+
+1. PERMISSIONS: You are permitted to compile this source code for your own 
+   personal, non-commercial use.
+2. RESTRICTIONS: You may NOT modify, redistribute, sublicense, or sell this 
+   software or any derivative works without explicit written permission 
+   from the author.
+3. ATTRIBUTION: This software utilizes the Qt framework, which is licensed 
+   under the GNU Lesser General Public License (LGPL). A copy of this 
+   license is included with the software distribution.

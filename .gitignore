@@ -2,3 +2,6 @@ build-mingw/*
 build.sh
 build/*
 build-linux.sh
+build-dist.sh
+karttapullautin*
+AppDist*

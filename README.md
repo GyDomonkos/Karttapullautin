@@ -152,24 +152,14 @@ If DLL errors occur, verify:
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0.
+**Copyright (c) 2026 Domonkos Gyorffy. All Rights Reserved.**
 
-You are free to:
+This project is **Source-Available**, not Open Source.
 
-* Use
-* Study
-* Modify
-* Distribute
+* **Use & Compilation:** You are free to compile and use this software for private, non-commercial purposes.
+* **Redistribution:** You may not redistribute, modify, or sell this software or its source code without explicit written permission.
+* **Qt Attribution:** This software utilizes the Qt framework, which is licensed under the GNU Lesser General Public License (LGPL). The relevant license files are included in the software distribution.
 
-Under the following conditions:
-
-* Any distributed modified version must also be licensed under GPLv3.
-* Source code must be made available when distributing binaries.
-* No additional restrictions may be imposed.
-
-
-For more details on the license, see:
-[https://www.gnu.org/licenses/gpl-3.0.html](https://www.gnu.org/licenses/gpl-3.0.html)
 
 ---
 
