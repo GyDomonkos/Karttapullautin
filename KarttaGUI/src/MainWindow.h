@@ -2,6 +2,7 @@
 
 #include <QMainWindow>
 #include <QMap>
+#include <QSet>
 
 class KarttaRunner;
 class PreviewPanel;
@@ -27,8 +28,12 @@ private slots:
     void handleFinished(int exitCode);
 
 private:
+    // Rewrites matching keys in iniPath, preserving all other content.
+    // Keys in toComment are written as "# key=value" (commented out).
+    // Commented lines whose key appears in values are uncommented.
     bool writeIniValues(const QString& iniPath,
-                        const QMap<QString, QString>& values);
+                        const QMap<QString, QString>& values,
+                        const QSet<QString>& toComment = {});
 
     KarttaRunner*  runner;
     PreviewPanel*  previewPanel;

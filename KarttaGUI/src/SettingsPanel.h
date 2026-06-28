@@ -2,24 +2,15 @@
 
 #include <QWidget>
 #include <QMap>
-#include <array>
+#include <QSet>
+#include <QVector>
 
 class QDoubleSpinBox;
 class QSpinBox;
 class QComboBox;
 class QCheckBox;
-class QGroupBox;
+class QVBoxLayout;
 
-// --------------------------------------------------------------------------
-// SettingsPanel
-//
-// Exposes the most important pullauta.ini parameters through a scrollable
-// form UI. Call loadFromIni() at startup to populate from the current file,
-// and values() before each run to get the map to pass to writeIniValues().
-//
-// batch / lazfolder / batchoutfolder are NOT managed here — MainWindow owns
-// those and writes them directly.
-// --------------------------------------------------------------------------
 class SettingsPanel : public QWidget
 {
     Q_OBJECT
@@ -27,16 +18,19 @@ class SettingsPanel : public QWidget
 public:
     explicit SettingsPanel(QWidget* parent = nullptr);
 
-    // Reads pullauta.ini and populates all controls.
-    // Missing keys are left at their defaults; non-existent file is a no-op.
     void loadFromIni(const QString& iniPath);
-
-    // Returns all parameter values as a string map for writeIniValues().
+    void resetToDefaults();                    // restores all controls to hardcoded defaults
     QMap<QString, QString> values() const;
 
+    // Keys that should be commented out in the INI (optional features disabled by user)
+    QSet<QString> disabledOptionalKeys() const;
+
 private:
+    void addShadeLevel(double value);     // appends a row to the shade list
+    void clearShadeLevels();              // removes all rows + clears greenShadeBoxes
+
     QDoubleSpinBox* makeDouble(double min, double max, double step,
-                               int decimals, double defaultVal,
+                               int dec, double defaultVal,
                                const QString& tooltip = {});
     QSpinBox*       makeInt(int min, int max, int defaultVal,
                             const QString& tooltip = {});
@@ -55,8 +49,10 @@ private:
     QDoubleSpinBox* greenground;
     QDoubleSpinBox* greenhigh;
     QDoubleSpinBox* yellowheight;
-    QDoubleSpinBox* yellowthresold;   // note: typo is in the INI key itself
-    std::array<QDoubleSpinBox*, 11> greenShadeBoxes;
+    QDoubleSpinBox* yellowthresold;   // typo matches the INI key
+
+    QVBoxLayout*             shadesLayout;   // holds the dynamic level rows
+    QVector<QDoubleSpinBox*> greenShadeBoxes;
 
     // ---- Cliffs ---------------------------------------------------------
     QDoubleSpinBox* cliff1;
@@ -72,4 +68,13 @@ private:
     QDoubleSpinBox* scalefactor;
     QDoubleSpinBox* zoffset;
     QCheckBox*      outputDxf;
+
+    // ---- Optional features (enable = uncomment in INI) ------------------
+    QCheckBox*      waterclassCheck;
+    QSpinBox*       waterclassBox;
+    QCheckBox*      waterElevCheck;
+    QDoubleSpinBox* waterElevBox;
+    QCheckBox*      buildingsclassCheck;
+    QSpinBox*       buildingsclassBox;
+    QCheckBox*      detectBuildingsCheck;
 };
