@@ -4,7 +4,7 @@ A Qt6 + OpenCV based graphical frontend for Karttapullautin.
 
 KarttaGUI provides a modern Windows desktop interface for running and managing Karttapullautin workflows using a MinGW-based toolchain.
 
-This project is licensed under the GNU General Public License v3.0 (GPLv3).
+Copyright (c) 2026 Domonkos Gyorffy. All Rights Reserved.
 
 ---
 
