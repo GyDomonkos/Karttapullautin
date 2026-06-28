@@ -165,13 +165,13 @@ This project is **Source-Available**, not Open Source.
 
 ## Contributing
 
-Contributions are welcome.
-
-By submitting changes, you agree that your contributions will be licensed under GPLv3.
+Contributions are welcome. 
+By submitting a contribution, you agree that your changes become part of this project and are subject to the same copyright and license terms as the rest of the codebase.
 
 ---
 
 ## Disclaimer
 
-This project is provided without warranty of any kind.
-See the GPLv3 license for full details.
+## Disclaimer
+
+This project is provided without warranty of any kind. Use at your own risk.
