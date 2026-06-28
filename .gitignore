@@ -1,3 +1,4 @@
 build-mingw/*
 build.sh
 build/*
+build-linux.sh
