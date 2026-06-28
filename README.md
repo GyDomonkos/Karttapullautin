@@ -172,6 +172,4 @@ By submitting a contribution, you agree that your changes become part of this pr
 
 ## Disclaimer
 
-## Disclaimer
-
 This project is provided without warranty of any kind. Use at your own risk.
