@@ -1,11 +1,13 @@
 #include "MainWindow.h"
 #include "KarttaRunner.h"
 #include "PreviewPanel.h"
+#include "SettingsPanel.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
 #include <QProgressBar>
+#include <QTabWidget>
 #include <QTextEdit>
 #include <QWidget>
 #include <QSplitter>
@@ -25,10 +27,14 @@ MainWindow::MainWindow(QWidget* parent)
     , completedTiles(0)
     , wasCancelled(false)
 {
-    // ---- Left panel: controls + console ---------------------------------
-    QWidget* leftPanel = new QWidget();
-    QVBoxLayout* leftLayout = new QVBoxLayout(leftPanel);
-    leftLayout->setContentsMargins(0, 0, 0, 0);
+    // =========================================================================
+    // Left panel — tab widget containing Run + Settings
+    // =========================================================================
+    QTabWidget* tabs = new QTabWidget();
+
+    // ---- Tab 0: Run --------------------------------------------------------
+    QWidget*     runTab    = new QWidget();
+    QVBoxLayout* runLayout = new QVBoxLayout(runTab);
 
     // Input selector
     QHBoxLayout* inputLayout = new QHBoxLayout();
@@ -64,93 +70,97 @@ MainWindow::MainWindow(QWidget* parent)
     outputText = new QTextEdit();
     outputText->setReadOnly(true);
 
-    leftLayout->addLayout(inputLayout);
-    leftLayout->addLayout(outputLayout);
-    leftLayout->addLayout(buttonLayout);
-    leftLayout->addWidget(progressBar);
-    leftLayout->addWidget(outputText);
+    runLayout->addLayout(inputLayout);
+    runLayout->addLayout(outputLayout);
+    runLayout->addLayout(buttonLayout);
+    runLayout->addWidget(progressBar);
+    runLayout->addWidget(outputText);
 
-    // ---- Right panel: map preview ---------------------------------------
+    tabs->addTab(runTab, "Run");
+
+    // ---- Tab 1: Settings ---------------------------------------------------
+    settingsPanel = new SettingsPanel();
+    tabs->addTab(settingsPanel, "Settings");
+
+    // Load current INI values into the settings panel at startup
+    const QString iniPath =
+        QCoreApplication::applicationDirPath() + "/karttapullautin/pullauta.ini";
+    settingsPanel->loadFromIni(iniPath);
+
+    // =========================================================================
+    // Right panel — map preview
+    // =========================================================================
     previewPanel = new PreviewPanel();
 
-    // ---- Splitter: left controls | right preview ------------------------
+    // =========================================================================
+    // Splitter: left (tabs) | right (preview)
+    // =========================================================================
     QSplitter* splitter = new QSplitter(Qt::Horizontal);
-    splitter->addWidget(leftPanel);
+    splitter->addWidget(tabs);
     splitter->addWidget(previewPanel);
-
-    // Give the preview roughly 60% of the initial width
     splitter->setStretchFactor(0, 2);
     splitter->setStretchFactor(1, 3);
 
     setCentralWidget(splitter);
-    resize(1200, 700);
+    resize(1280, 750);
 
-    // ---- Connections ----------------------------------------------------
+    // =========================================================================
+    // Connections
+    // =========================================================================
     runner = new KarttaRunner(this);
 
     connect(browseInputBtn,  &QPushButton::clicked,
             this, &MainWindow::browseInput);
-
     connect(browseOutputBtn, &QPushButton::clicked,
             this, &MainWindow::browseOutput);
-
-    connect(runButton,    &QPushButton::clicked,
+    connect(runButton,       &QPushButton::clicked,
             this, &MainWindow::startKarttapullautin);
-
-    connect(cancelButton, &QPushButton::clicked,
+    connect(cancelButton,    &QPushButton::clicked,
             this, &MainWindow::cancelKarttapullautin);
-
     connect(runner, &KarttaRunner::outputReceived,
             this, &MainWindow::handleOutput);
-
     connect(runner, &KarttaRunner::finished,
             this, &MainWindow::handleFinished);
 }
 
-// ---------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Slot: browseInput
-// ---------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 void MainWindow::browseInput()
 {
     QString dir = QFileDialog::getExistingDirectory(
-        this,
-        "Select Folder Containing LAS/LAZ Files"
-    );
+        this, "Select Folder Containing LAS/LAZ Files");
 
-    if (dir.isEmpty())
-        return;
+    if (dir.isEmpty()) return;
 
-    QDir inputDir(dir);
-    if (!inputDir.exists())
+    if (!QDir(dir).exists())
     {
         outputText->append("Selected input folder does not exist.");
         return;
     }
 
     QStringList lazFilters = { "*.las", "*.laz", "*.LAS", "*.LAZ" };
-    if (inputDir.entryList(lazFilters, QDir::Files).isEmpty())
+    if (QDir(dir).entryList(lazFilters, QDir::Files).isEmpty())
         outputText->append("Warning: no LAS/LAZ files found in selected folder.");
 
     inputEdit->setText(dir);
 }
 
-// ---------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Slot: browseOutput
-// ---------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 void MainWindow::browseOutput()
 {
     QString dir = QFileDialog::getExistingDirectory(
-        this,
-        "Select Output Directory"
-    );
+        this, "Select Output Directory");
 
     if (!dir.isEmpty())
         outputEdit->setText(dir);
 }
 
-// ---------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Slot: startKarttapullautin
-// ---------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 void MainWindow::startKarttapullautin()
 {
     QString inputFolder = inputEdit->text().trimmed();
@@ -161,13 +171,11 @@ void MainWindow::startKarttapullautin()
         outputText->append("Please select both an input folder and an output folder.");
         return;
     }
-
     if (!QDir(inputFolder).exists())
     {
         outputText->append("Input folder does not exist: " + inputFolder);
         return;
     }
-
     if (!QDir(outputPath).exists())
     {
         outputText->append("Output folder does not exist: " + outputPath);
@@ -180,29 +188,26 @@ void MainWindow::startKarttapullautin()
     completedTiles = 0;
     wasCancelled   = false;
 
-    // Progress bar
     progressBar->setMinimum(0);
     progressBar->setMaximum(totalTiles > 0 ? totalTiles : 1);
     progressBar->setValue(0);
     progressBar->setVisible(true);
 
-    // Button states
     runButton->setEnabled(false);
     cancelButton->setEnabled(true);
     outputText->clear();
 
-    // Point the preview panel at the output folder before launching,
-    // so it scans existing PNGs and watches for new ones
     previewPanel->setOutputFolder(outputPath);
 
-    // Forward slashes — works on all platforms, no escaping needed in INI
+    // Forward slashes — works everywhere, no escaping needed in INI
     inputFolder = QDir::fromNativeSeparators(inputFolder);
     outputPath  = QDir::fromNativeSeparators(outputPath);
 
-    QString baseDir = QCoreApplication::applicationDirPath() + "/karttapullautin";
-    QString iniPath = baseDir + "/pullauta.ini";
+    const QString baseDir  = QCoreApplication::applicationDirPath() + "/karttapullautin";
+    const QString iniPath  = baseDir + "/pullauta.ini";
 
-    QMap<QString, QString> iniValues;
+    // Settings panel values form the base; run-time values are added on top
+    QMap<QString, QString> iniValues = settingsPanel->values();
     iniValues["batch"]          = "1";
     iniValues["lazfolder"]      = inputFolder;
     iniValues["batchoutfolder"] = outputPath;
@@ -231,9 +236,9 @@ void MainWindow::startKarttapullautin()
     runner->run(executable, QStringList());
 }
 
-// ---------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Slot: cancelKarttapullautin
-// ---------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 void MainWindow::cancelKarttapullautin()
 {
     wasCancelled = true;
@@ -242,16 +247,15 @@ void MainWindow::cancelKarttapullautin()
     runner->cancel();
 }
 
-// ---------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Slot: handleOutput
-// ---------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 void MainWindow::handleOutput(const QString& text)
 {
     outputText->append(text.trimmed());
 
     int done = text.count("All done!")
              + text.count("exists already in output folder");
-
     if (done > 0)
     {
         completedTiles = qMin(completedTiles + done, totalTiles);
@@ -259,24 +263,18 @@ void MainWindow::handleOutput(const QString& text)
     }
 }
 
-// ---------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Slot: handleFinished
-// ---------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 void MainWindow::handleFinished(int exitCode)
 {
     if (wasCancelled)
-    {
         outputText->append("\nRun cancelled.");
-    }
     else if (exitCode == 0)
-    {
         outputText->append("\nAll tiles processed successfully.");
-    }
     else
-    {
-        outputText->append(
-            "\nProcess finished with exit code: " + QString::number(exitCode));
-    }
+        outputText->append("\nProcess finished with exit code: "
+                           + QString::number(exitCode));
 
     wasCancelled = false;
     runButton->setEnabled(true);
@@ -284,9 +282,9 @@ void MainWindow::handleFinished(int exitCode)
     progressBar->setVisible(false);
 }
 
-// ---------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Private helper: writeIniValues
-// ---------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 bool MainWindow::writeIniValues(const QString& iniPath,
                                 const QMap<QString, QString>& values)
 {
@@ -294,15 +292,15 @@ bool MainWindow::writeIniValues(const QString& iniPath,
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
         return false;
 
-    QStringList lines;
+    QStringList   lines;
     QSet<QString> updated;
-    QTextStream in(&file);
+    QTextStream   in(&file);
 
     while (!in.atEnd())
     {
         QString line    = in.readLine();
         QString trimmed = line.trimmed();
-        bool replaced   = false;
+        bool    replaced = false;
 
         if (!trimmed.isEmpty() && !trimmed.startsWith('#') && !trimmed.startsWith('%'))
         {
@@ -324,10 +322,8 @@ bool MainWindow::writeIniValues(const QString& iniPath,
     file.close();
 
     for (auto it = values.constBegin(); it != values.constEnd(); ++it)
-    {
         if (!updated.contains(it.key()))
             lines << it.key() + "=" + it.value();
-    }
 
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
         return false;

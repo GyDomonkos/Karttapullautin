@@ -5,6 +5,7 @@
 
 class KarttaRunner;
 class PreviewPanel;
+class SettingsPanel;
 class QTextEdit;
 class QPushButton;
 class QLineEdit;
@@ -29,8 +30,9 @@ private:
     bool writeIniValues(const QString& iniPath,
                         const QMap<QString, QString>& values);
 
-    KarttaRunner* runner;
-    PreviewPanel* previewPanel;
+    KarttaRunner*  runner;
+    PreviewPanel*  previewPanel;
+    SettingsPanel* settingsPanel;
 
     QLineEdit*    inputEdit;
     QLineEdit*    outputEdit;

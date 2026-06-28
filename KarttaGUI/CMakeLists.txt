@@ -17,6 +17,7 @@ add_executable(KarttaGUI
     src/MainWindow.cpp
     src/KarttaRunner.cpp
     src/PreviewPanel.cpp
+    src/SettingsPanel.cpp
 )
 
 target_include_directories(KarttaGUI PRIVATE
