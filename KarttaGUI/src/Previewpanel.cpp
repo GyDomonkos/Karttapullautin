@@ -5,6 +5,7 @@
 #include <QListWidget>
 #include <QLabel>
 #include <QScrollArea>
+#include <QStackedWidget>
 #include <QFileSystemWatcher>
 #include <QDir>
 #include <QFileInfo>
@@ -46,7 +47,22 @@ PreviewPanel::PreviewPanel(QWidget* parent)
     sidebar->setLayout(sidebarLayout);
     sidebar->setFixedWidth(160);
 
-    // ---- Large image view (right area) ----------------------------------
+    // ---- Right side: title + stacked content ----------------------------
+    imageTitle = new QLabel();
+    imageTitle->setAlignment(Qt::AlignCenter);
+    imageTitle->setWordWrap(true);
+    imageTitle->setVisible(false);   // hidden until an image is selected
+
+    // Page 0: placeholder — a plain label, no scroll area, no artifacts
+    placeholderLabel = new QLabel(
+        "No maps yet.\n\n"
+        "Select an output folder and\n"
+        "press Run — maps will appear\n"
+        "here as each tile completes."
+    );
+    placeholderLabel->setAlignment(Qt::AlignCenter);
+
+    // Page 1: the actual image inside a scroll area
     previewLabel = new QLabel();
     previewLabel->setAlignment(Qt::AlignTop | Qt::AlignHCenter);
     previewLabel->setMinimumSize(1, 1);
@@ -55,16 +71,27 @@ PreviewPanel::PreviewPanel(QWidget* parent)
     previewScroll->setWidget(previewLabel);
     previewScroll->setWidgetResizable(false);
     previewScroll->setAlignment(Qt::AlignTop | Qt::AlignHCenter);
+    // Hide the scroll area frame so it doesn't draw a border
+    previewScroll->setFrameShape(QFrame::NoFrame);
 
-    imageTitle = new QLabel();
-    imageTitle->setAlignment(Qt::AlignCenter);
-    imageTitle->setWordWrap(true);
+    stack = new QStackedWidget();
+    stack->addWidget(placeholderLabel);   // index 0
+    stack->addWidget(previewScroll);      // index 1
+    stack->setCurrentIndex(0);            // start on placeholder
+
+    // Permanent header — always visible regardless of whether an image is loaded
+    QLabel* previewHeader = new QLabel("Map Preview");
+    QFont headerFont = previewHeader->font();
+    headerFont.setBold(true);
+    previewHeader->setFont(headerFont);
+    previewHeader->setAlignment(Qt::AlignCenter);
 
     QVBoxLayout* rightLayout = new QVBoxLayout();
     rightLayout->setContentsMargins(4, 0, 0, 0);
     rightLayout->setSpacing(4);
-    rightLayout->addWidget(imageTitle);
-    rightLayout->addWidget(previewScroll, 1);
+    rightLayout->addWidget(previewHeader);
+    rightLayout->addWidget(imageTitle);   // filename — empty until a map is selected
+    rightLayout->addWidget(stack, 1);
 
     QWidget* rightPane = new QWidget();
     rightPane->setLayout(rightLayout);
@@ -84,8 +111,6 @@ PreviewPanel::PreviewPanel(QWidget* parent)
 
     connect(thumbnailList, &QListWidget::itemClicked,
             this, &PreviewPanel::onItemClicked);
-
-    showPlaceholder();
 }
 
 // --------------------------------------------------------------------------
@@ -93,7 +118,6 @@ PreviewPanel::PreviewPanel(QWidget* parent)
 // --------------------------------------------------------------------------
 void PreviewPanel::setOutputFolder(const QString& folderPath)
 {
-    // Stop watching the old folder
     if (!outputFolder.isEmpty() && watcher->directories().contains(outputFolder))
         watcher->removePath(outputFolder);
 
@@ -120,7 +144,6 @@ void PreviewPanel::clear()
 
 // --------------------------------------------------------------------------
 // Protected: resizeEvent
-// Refits the current image to the (possibly new) scroll area width.
 // --------------------------------------------------------------------------
 void PreviewPanel::resizeEvent(QResizeEvent* event)
 {
@@ -132,7 +155,6 @@ void PreviewPanel::resizeEvent(QResizeEvent* event)
 
 // --------------------------------------------------------------------------
 // Private slot: onDirectoryChanged
-// Fires whenever a file is added or removed in the watched folder.
 // --------------------------------------------------------------------------
 void PreviewPanel::onDirectoryChanged(const QString& /*path*/)
 {
@@ -154,7 +176,6 @@ void PreviewPanel::onItemClicked(QListWidgetItem* item)
 
 // --------------------------------------------------------------------------
 // Private: scanFolder
-// Finds all PNG files not yet shown and adds them.
 // --------------------------------------------------------------------------
 void PreviewPanel::scanFolder()
 {
@@ -175,8 +196,6 @@ void PreviewPanel::scanFolder()
 
 // --------------------------------------------------------------------------
 // Private: addImageFile
-// Loads a scaled thumbnail and adds it to the list.
-// Uses QImageReader::setScaledSize() to avoid loading the full image.
 // --------------------------------------------------------------------------
 void PreviewPanel::addImageFile(const QString& filePath)
 {
@@ -184,7 +203,6 @@ void PreviewPanel::addImageFile(const QString& filePath)
     if (!reader.canRead())
         return;
 
-    // Scale to thumbnail size while preserving aspect ratio
     QSize origSize = reader.size();
     if (origSize.isEmpty())
         return;
@@ -205,7 +223,7 @@ void PreviewPanel::addImageFile(const QString& filePath)
     thumbnailList->addItem(item);
     loadedFiles.insert(filePath);
 
-    // Auto-select the first image that arrives
+    // Auto-select and display the first image that arrives
     if (thumbnailList->count() == 1)
     {
         thumbnailList->setCurrentRow(0);
@@ -215,7 +233,7 @@ void PreviewPanel::addImageFile(const QString& filePath)
 
 // --------------------------------------------------------------------------
 // Private: showImage
-// Loads and scales the image to fit the scroll area's current viewport width.
+// Switches the stack to the scroll area page and loads the image.
 // --------------------------------------------------------------------------
 void PreviewPanel::showImage(const QString& filePath)
 {
@@ -233,7 +251,6 @@ void PreviewPanel::showImage(const QString& filePath)
     if (origSize.isEmpty())
         return;
 
-    // Only downscale — never upscale beyond original size
     if (origSize.width() > maxWidth)
     {
         QSize scaled = origSize.scaled(maxWidth, INT_MAX, Qt::KeepAspectRatio);
@@ -248,20 +265,19 @@ void PreviewPanel::showImage(const QString& filePath)
     previewLabel->adjustSize();
 
     imageTitle->setText(QFileInfo(filePath).fileName());
+    imageTitle->setVisible(true);   // show filename bar once an image is loaded
+
+    // Switch to the image page — placeholder disappears cleanly
+    stack->setCurrentIndex(1);
 }
 
 // --------------------------------------------------------------------------
 // Private: showPlaceholder
+// Switches the stack to the plain label page — no scroll area, no artifacts.
 // --------------------------------------------------------------------------
 void PreviewPanel::showPlaceholder()
 {
     imageTitle->clear();
-    previewLabel->setPixmap(QPixmap());
-    previewLabel->setText(
-        "No maps yet.\n\n"
-        "Select an output folder and\n"
-        "press Run — maps will appear\n"
-        "here as each tile completes."
-    );
-    previewLabel->setAlignment(Qt::AlignCenter);
+    imageTitle->setVisible(false);  // no empty label hanging above the placeholder
+    stack->setCurrentIndex(0);
 }

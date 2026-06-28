@@ -9,17 +9,8 @@ class QListWidgetItem;
 class QLabel;
 class QScrollArea;
 class QFileSystemWatcher;
+class QStackedWidget;
 
-// --------------------------------------------------------------------------
-// PreviewPanel
-//
-// Shows a scrollable column of PNG thumbnails on the left and a full-size
-// (fit-to-width) view of the selected image on the right.
-//
-// Call setOutputFolder() once per run to point it at the output directory.
-// It scans for existing PNGs immediately, then watches the folder for new
-// ones as Karttapullautin produces them.
-// --------------------------------------------------------------------------
 class PreviewPanel : public QWidget
 {
     Q_OBJECT
@@ -27,11 +18,7 @@ class PreviewPanel : public QWidget
 public:
     explicit PreviewPanel(QWidget* parent = nullptr);
 
-    // Clears all thumbnails, scans folderPath for existing PNGs, and starts
-    // watching for new ones. Safe to call multiple times.
     void setOutputFolder(const QString& folderPath);
-
-    // Clears all thumbnails and stops watching.
     void clear();
 
 protected:
@@ -49,11 +36,18 @@ private:
 
     QListWidget*        thumbnailList;
     QLabel*             imageTitle;
-    QLabel*             previewLabel;
+
+    // Right-side content is swapped via a QStackedWidget:
+    //   page 0 = placeholderLabel (no scroll area, no artifacts)
+    //   page 1 = previewScroll + previewLabel
+    QStackedWidget*     stack;
+    QLabel*             placeholderLabel;
     QScrollArea*        previewScroll;
+    QLabel*             previewLabel;
+
     QFileSystemWatcher* watcher;
 
-    QSet<QString> loadedFiles;    // absolute paths already added as thumbnails
+    QSet<QString> loadedFiles;
     QString       outputFolder;
     QString       currentImagePath;
 };
