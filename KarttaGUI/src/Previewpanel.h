@@ -3,13 +3,15 @@
 #include <QWidget>
 #include <QSet>
 #include <QString>
+#include <QGraphicsView>
 
 class QListWidget;
 class QListWidgetItem;
 class QLabel;
-class QScrollArea;
 class QFileSystemWatcher;
 class QStackedWidget;
+class QGraphicsScene;
+class QGraphicsPixmapItem;
 
 class PreviewPanel : public QWidget
 {
@@ -23,6 +25,7 @@ public:
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
+    bool eventFilter(QObject* obj, QEvent* event) override;
 
 private slots:
     void onDirectoryChanged(const QString& path);
@@ -33,21 +36,38 @@ private:
     void addImageFile(const QString& filePath);
     void showImage(const QString& filePath);
     void showPlaceholder();
+    void setupGraphicsView();
+    void fitToWindow();
+    void zoomIn();
+    void zoomOut();
+    void resetZoom();
 
     QListWidget*        thumbnailList;
     QLabel*             imageTitle;
 
     // Right-side content is swapped via a QStackedWidget:
     //   page 0 = placeholderLabel (no scroll area, no artifacts)
-    //   page 1 = previewScroll + previewLabel
+    //   page 1 = graphicsView
     QStackedWidget*     stack;
     QLabel*             placeholderLabel;
-    QScrollArea*        previewScroll;
-    QLabel*             previewLabel;
+    
+    // Graphics View components for zoom/pan
+    QGraphicsScene*     scene;
+    QGraphicsView*      graphicsView;
+    QGraphicsPixmapItem* pixmapItem;
 
     QFileSystemWatcher* watcher;
 
     QSet<QString> loadedFiles;
     QString       outputFolder;
     QString       currentImagePath;
+    
+    // Zoom state
+    qreal currentScale;
+    qreal minScale;
+    qreal maxScale;
+    
+    // Mouse interaction state
+    QPoint lastPanPoint;
+    bool isPanning;
 };
