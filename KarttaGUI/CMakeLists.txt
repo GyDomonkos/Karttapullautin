@@ -62,6 +62,13 @@ else()
     message(WARNING "ERROR: Could not find karttapullautin folder at ${KARTTA_DIR} - please check the path!")
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/resources")
+    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/resources" DESTINATION bin)
+    message(STATUS "SUCCESS: Will copy resources folder to deployment folder!")
+else()
+    message(WARNING "WARNING: Could not find resources folder at ${CMAKE_CURRENT_SOURCE_DIR}/resources")
+endif()
+
 # 3. Copy OpenCV DLLs automatically
 # We look for the DLLs relative to where CMake found OpenCV
 if(OpenCV_FOUND)
