@@ -69,6 +69,14 @@ PreviewPanel::PreviewPanel(QWidget* parent)
     imageTitle->setWordWrap(true);
     imageTitle->setVisible(false);   // hidden until an image is selected
 
+    // Zoom level label
+    zoomLabel = new QLabel("100%");
+    zoomLabel->setAlignment(Qt::AlignCenter);
+    QFont zoomFont = zoomLabel->font();
+    zoomFont.setPointSize(zoomFont.pointSize() - 1);
+    zoomLabel->setFont(zoomFont);
+    zoomLabel->setVisible(false);   // hidden until an image is loaded
+
     // Page 0: placeholder  a plain label, no scroll area, no artifacts
     placeholderLabel = new QLabel(
         "No maps yet.\n\n"
@@ -98,6 +106,7 @@ PreviewPanel::PreviewPanel(QWidget* parent)
     rightLayout->setSpacing(4);
     rightLayout->addWidget(previewHeader);
     rightLayout->addWidget(imageTitle);   // filename  empty until a map is selected
+    rightLayout->addWidget(zoomLabel);    // zoom level percentage
     rightLayout->addWidget(stack, 1);
 
     QWidget* rightPane = new QWidget();
@@ -146,6 +155,19 @@ void PreviewPanel::setupGraphicsView()
 }
 
 // --------------------------------------------------------------------------
+// Private: updateZoomLabel
+// Updates the zoom level display in percentage
+// --------------------------------------------------------------------------
+void PreviewPanel::updateZoomLabel()
+{
+    if (!zoomLabel->isVisible())
+        return;
+    
+    int percentage = static_cast<int>(currentScale * 100 + 0.5); // Round to nearest integer
+    zoomLabel->setText(QString("%1%").arg(percentage));
+}
+
+// --------------------------------------------------------------------------
 // Protected: eventFilter
 // Handles mouse wheel for zooming and mouse press/move for panning
 // --------------------------------------------------------------------------
@@ -168,6 +190,7 @@ bool PreviewPanel::eventFilter(QObject* obj, QEvent* event)
                     currentScale *= scaleFactor;
                     if (currentScale > maxScale) currentScale = maxScale;
                     graphicsView->scale(scaleFactor, scaleFactor);
+                    updateZoomLabel();
                 }
             }
             else if (wheelEvent->angleDelta().y() < 0)
@@ -178,6 +201,7 @@ bool PreviewPanel::eventFilter(QObject* obj, QEvent* event)
                     currentScale /= scaleFactor;
                     if (currentScale < minScale) currentScale = minScale;
                     graphicsView->scale(1.0 / scaleFactor, 1.0 / scaleFactor);
+                    updateZoomLabel();
                 }
             }
             
@@ -385,6 +409,8 @@ void PreviewPanel::showImage(const QString& filePath)
 
     imageTitle->setText(QFileInfo(filePath).fileName());
     imageTitle->setVisible(true);   // show filename bar once an image is loaded
+    zoomLabel->setVisible(true);     // show zoom level
+    updateZoomLabel();              // update zoom percentage
 
     // Switch to the image page  placeholder disappears cleanly
     stack->setCurrentIndex(1);
@@ -398,6 +424,7 @@ void PreviewPanel::showPlaceholder()
 {
     imageTitle->clear();
     imageTitle->setVisible(false);  // no empty label hanging above the placeholder
+    zoomLabel->setVisible(false);   // hide zoom label
     stack->setCurrentIndex(0);
     
     // Reset graphics view state
@@ -436,6 +463,7 @@ void PreviewPanel::fitToWindow()
             graphicsView->resetTransform();
             graphicsView->scale(scale, scale);
             currentScale = scale;
+            updateZoomLabel(); // Update zoom percentage after fit
             
             // Center the image
             graphicsView->centerOn(pixmapItem);

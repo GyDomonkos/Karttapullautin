@@ -41,6 +41,7 @@ private:
     void zoomIn();
     void zoomOut();
     void resetZoom();
+    void updateZoomLabel();
 
     QListWidget*        thumbnailList;
     QLabel*             imageTitle;
@@ -66,6 +67,9 @@ private:
     qreal currentScale;
     qreal minScale;
     qreal maxScale;
+    
+    // Zoom level display
+    QLabel*             zoomLabel;
     
     // Mouse interaction state
     QPoint lastPanPoint;
