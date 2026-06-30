@@ -17,23 +17,22 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QTextStream>
 #include <QSet>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QMimeData>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 
 
 // --------------------------------------------------------------------------
 // File-level helper: extracts the key name from a commented line.
-//
-// Handles both formats found in pullauta.ini:
-//   # key=value          (plain comment)
-//   %23%20key=value      (percent-encoded comment written by old QSettings)
-//
-// Returns an empty string if the line is not a commented key=value pair.
 // --------------------------------------------------------------------------
 static QString commentedKey(const QString& trimmed)
 {
     QString rest;
-
     if (trimmed.startsWith("%23"))
     {
         rest = trimmed.mid(3);
@@ -62,26 +61,36 @@ MainWindow::MainWindow(QWidget* parent)
     , wasCancelled(false)
 {
     setWindowIcon(QIcon("resources/icon.png"));
+    setAcceptDrops(true);   // enable folder / LAS drag-and-drop onto the window
+
     QTabWidget* tabs = new QTabWidget();
 
     // ---- Tab 0: Run ------------------------------------------------------
     QWidget*     runTab    = new QWidget();
     QVBoxLayout* runLayout = new QVBoxLayout(runTab);
 
+    // Input row
     QHBoxLayout* inputLayout = new QHBoxLayout();
     inputEdit = new QLineEdit();
+    inputEdit->setPlaceholderText("Drop a folder or LAS/LAZ file here, or use Browse…");
     QPushButton* browseInputBtn = new QPushButton("Browse LAS");
     inputLayout->addWidget(new QLabel("Input LAS Folder:"));
     inputLayout->addWidget(inputEdit);
     inputLayout->addWidget(browseInputBtn);
 
+    // Output row — Browse + Open Folder button
     QHBoxLayout* outputLayout = new QHBoxLayout();
     outputEdit = new QLineEdit();
     QPushButton* browseOutputBtn = new QPushButton("Browse Output");
+    openFolderButton = new QPushButton("Open Folder");
+    openFolderButton->setToolTip("Open the output folder in Explorer");
+    openFolderButton->setEnabled(false);
     outputLayout->addWidget(new QLabel("Output Folder:"));
     outputLayout->addWidget(outputEdit);
     outputLayout->addWidget(browseOutputBtn);
+    outputLayout->addWidget(openFolderButton);
 
+    // Run / Cancel
     QHBoxLayout* buttonLayout = new QHBoxLayout();
     runButton    = new QPushButton("Run Karttapullautin");
     cancelButton = new QPushButton("Cancel");
@@ -131,36 +140,107 @@ MainWindow::MainWindow(QWidget* parent)
 
     connect(browseInputBtn,  &QPushButton::clicked, this, &MainWindow::browseInput);
     connect(browseOutputBtn, &QPushButton::clicked, this, &MainWindow::browseOutput);
+    connect(openFolderButton,&QPushButton::clicked, this, &MainWindow::openOutputFolder);
     connect(runButton,       &QPushButton::clicked, this, &MainWindow::startKarttapullautin);
     connect(cancelButton,    &QPushButton::clicked, this, &MainWindow::cancelKarttapullautin);
     connect(runner, &KarttaRunner::outputReceived,  this, &MainWindow::handleOutput);
     connect(runner, &KarttaRunner::finished,        this, &MainWindow::handleFinished);
+
+    // Enable the Open Folder button whenever the output path field is non-empty
+    connect(outputEdit, &QLineEdit::textChanged, this, [this](const QString& text) {
+        openFolderButton->setEnabled(!text.trimmed().isEmpty());
+    });
+}
+
+// ==========================================================================
+// Drag & drop
+// ==========================================================================
+
+// Accept the drag if it carries at least one local path that is either a
+// directory or a LAS/LAZ file (in which case we'll use its parent folder).
+void MainWindow::dragEnterEvent(QDragEnterEvent* event)
+{
+    if (!event->mimeData()->hasUrls()) { event->ignore(); return; }
+
+    for (const QUrl& url : event->mimeData()->urls())
+    {
+        if (!url.isLocalFile()) continue;
+        const QFileInfo info(url.toLocalFile());
+        if (info.isDir()) { event->acceptProposedAction(); return; }
+        const QString ext = info.suffix().toLower();
+        if (ext == "las" || ext == "laz") { event->acceptProposedAction(); return; }
+    }
+    event->ignore();
+}
+
+void MainWindow::dropEvent(QDropEvent* event)
+{
+    for (const QUrl& url : event->mimeData()->urls())
+    {
+        if (!url.isLocalFile()) continue;
+        const QFileInfo info(url.toLocalFile());
+
+        QString folder;
+        if (info.isDir())
+            folder = info.absoluteFilePath();
+        else if (info.suffix().toLower() == "las" || info.suffix().toLower() == "laz")
+            folder = info.absolutePath();   // use the containing folder
+
+        if (!folder.isEmpty())
+        {
+            applyInputFolder(folder);
+            event->acceptProposedAction();
+            return;   // only handle the first valid item
+        }
+    }
 }
 
 // ==========================================================================
 // Slots
 // ==========================================================================
+
 void MainWindow::browseInput()
 {
-    QString dir = QFileDialog::getExistingDirectory(
+    const QString dir = QFileDialog::getExistingDirectory(
         this, "Select Folder Containing LAS/LAZ Files");
-    if (dir.isEmpty()) return;
+    if (!dir.isEmpty())
+        applyInputFolder(dir);
+}
 
-    if (!QDir(dir).exists()) {
-        outputText->append("Selected input folder does not exist.");
+// Shared logic used by both browseInput() and dropEvent().
+void MainWindow::applyInputFolder(const QString& folderPath)
+{
+    if (!QDir(folderPath).exists())
+    {
+        outputText->append("Folder does not exist: " + folderPath);
         return;
     }
-    QStringList lazFilters = { "*.las", "*.laz", "*.LAS", "*.LAZ" };
-    if (QDir(dir).entryList(lazFilters, QDir::Files).isEmpty())
-        outputText->append("Warning: no LAS/LAZ files found in selected folder.");
+    const QStringList lazFilters = { "*.las", "*.laz", "*.LAS", "*.LAZ" };
+    if (QDir(folderPath).entryList(lazFilters, QDir::Files).isEmpty())
+        outputText->append("Warning: no LAS/LAZ files found in: " + folderPath);
 
-    inputEdit->setText(dir);
+    inputEdit->setText(folderPath);
 }
 
 void MainWindow::browseOutput()
 {
-    QString dir = QFileDialog::getExistingDirectory(this, "Select Output Directory");
-    if (!dir.isEmpty()) outputEdit->setText(dir);
+    const QString dir = QFileDialog::getExistingDirectory(
+        this, "Select Output Directory");
+    if (!dir.isEmpty())
+        outputEdit->setText(dir);
+}
+
+void MainWindow::openOutputFolder()
+{
+    const QString path = outputEdit->text().trimmed();
+    if (path.isEmpty()) return;
+
+    if (!QDir(path).exists())
+    {
+        outputText->append("Output folder does not exist: " + path);
+        return;
+    }
+    QDesktopServices::openUrl(QUrl::fromLocalFile(path));
 }
 
 void MainWindow::startKarttapullautin()
@@ -181,7 +261,7 @@ void MainWindow::startKarttapullautin()
         return;
     }
 
-    QStringList lazFilters = { "*.las", "*.laz", "*.LAS", "*.LAZ" };
+    const QStringList lazFilters = { "*.las", "*.laz", "*.LAS", "*.LAZ" };
     totalTiles     = QDir(inputFolder).entryList(lazFilters, QDir::Files).count();
     completedTiles = 0;
     wasCancelled   = false;
@@ -202,8 +282,6 @@ void MainWindow::startKarttapullautin()
     const QString baseDir = QCoreApplication::applicationDirPath() + "/karttapullautin";
     const QString iniPath = baseDir + "/pullauta.ini";
 
-    // Settings panel provides the full parameter set;
-    // run-time values (paths, batch) are added on top.
     QMap<QString, QString> iniValues = settingsPanel->values();
     iniValues["batch"]          = "1";
     iniValues["lazfolder"]      = inputFolder;
@@ -245,8 +323,8 @@ void MainWindow::handleOutput(const QString& text)
 {
     outputText->append(text.trimmed());
 
-    int done = text.count("All done!")
-             + text.count("exists already in output folder");
+    const int done = text.count("All done!")
+                   + text.count("exists already in output folder");
     if (done > 0) {
         completedTiles = qMin(completedTiles + done, totalTiles);
         progressBar->setValue(completedTiles);
@@ -271,14 +349,6 @@ void MainWindow::handleFinished(int exitCode)
 
 // ==========================================================================
 // Private: writeIniValues
-//
-// Line-by-line INI rewriter. Three cases per line:
-//   1. Active key in `values`  → overwrite (or comment out if in toComment)
-//   2. Active key in `toComment` only → comment it out
-//   3. Commented key whose name is in `values` → uncomment and write new value
-//   4. Everything else → preserve verbatim
-//
-// Keys in `values` that were not found anywhere are appended at the end.
 // ==========================================================================
 bool MainWindow::writeIniValues(const QString& iniPath,
                                 const QMap<QString, QString>& values,
@@ -298,25 +368,21 @@ bool MainWindow::writeIniValues(const QString& iniPath,
         QString trimmed = line.trimmed();
         bool    replaced = false;
 
-        // ---- Active (non-commented) key=value lines ----------------------
         if (!trimmed.isEmpty() && !trimmed.startsWith('#') &&
             !trimmed.startsWith('%') && !trimmed.startsWith('['))
         {
-            // Case 1: key is in values
             for (auto it = values.constBegin(); it != values.constEnd(); ++it)
             {
                 if (trimmed.startsWith(it.key() + "="))
                 {
-                    if (toComment.contains(it.key()))
-                        lines << "# " + it.key() + "=" + it.value();
-                    else
-                        lines << it.key() + "=" + it.value();
+                    lines << (toComment.contains(it.key())
+                              ? "# " + it.key() + "=" + it.value()
+                              :        it.key() + "=" + it.value());
                     handled.insert(it.key());
                     replaced = true;
                     break;
                 }
             }
-            // Case 2: key should be commented out but isn't in values
             if (!replaced)
             {
                 for (const QString& key : toComment)
@@ -332,7 +398,6 @@ bool MainWindow::writeIniValues(const QString& iniPath,
             }
         }
 
-        // ---- Commented lines that should be activated --------------------
         if (!replaced)
         {
             const QString cKey = commentedKey(trimmed);
@@ -349,12 +414,9 @@ bool MainWindow::writeIniValues(const QString& iniPath,
     }
     file.close();
 
-    // Append active keys that weren't present in the file at all
     for (auto it = values.constBegin(); it != values.constEnd(); ++it)
-    {
         if (!handled.contains(it.key()) && !toComment.contains(it.key()))
             lines << it.key() + "=" + it.value();
-    }
 
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
         return false;

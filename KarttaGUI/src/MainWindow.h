@@ -11,6 +11,8 @@ class QTextEdit;
 class QPushButton;
 class QLineEdit;
 class QProgressBar;
+class QDragEnterEvent;
+class QDropEvent;
 
 class MainWindow : public QMainWindow
 {
@@ -19,21 +21,25 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget* parent = nullptr);
 
+protected:
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dropEvent(QDropEvent* event)            override;
+
 private slots:
     void browseInput();
     void browseOutput();
+    void openOutputFolder();
     void startKarttapullautin();
     void cancelKarttapullautin();
     void handleOutput(const QString& text);
     void handleFinished(int exitCode);
 
 private:
-    // Rewrites matching keys in iniPath, preserving all other content.
-    // Keys in toComment are written as "# key=value" (commented out).
-    // Commented lines whose key appears in values are uncommented.
     bool writeIniValues(const QString& iniPath,
                         const QMap<QString, QString>& values,
                         const QSet<QString>& toComment = {});
+
+    void applyInputFolder(const QString& folderPath);   // shared by browse + drop
 
     KarttaRunner*  runner;
     PreviewPanel*  previewPanel;
@@ -44,6 +50,7 @@ private:
     QTextEdit*    outputText;
     QPushButton*  runButton;
     QPushButton*  cancelButton;
+    QPushButton*  openFolderButton;
     QProgressBar* progressBar;
 
     int  totalTiles;
