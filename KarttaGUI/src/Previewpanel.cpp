@@ -21,7 +21,43 @@
 #include <QScrollBar>
 #include <QFrame>
 #include <QPoint>
+#include <QPushButton>
 #include <QEvent>
+#include <QGuiApplication>
+#include <QScreen>
+
+
+// --------------------------------------------------------------------------
+// File-level helper: pullautaTrueScaleFactor
+//
+// Karttapullautin renders its PNGs at 600 DPI specifically so that, when
+// printed at that DPI, 1 cm on paper equals 100 m in reality (1:10,000).
+//
+// On screen, "physically correct 1:10,000" means each image pixel must
+// occupy (screenDPI / 600) screen pixels — NOT 1 screen pixel as a naive
+// "100% = 1:1 pixel mapping" would assume. A 96 DPI screen, for example,
+// needs the image shrunk to 16% of its pixel size to be physically accurate.
+//
+// This returns the QGraphicsView transform scale that achieves that.
+// --------------------------------------------------------------------------
+static qreal pullautaTrueScaleFactor()
+{
+    const qreal pullautaRenderDpi = 600.0;
+    qreal screenDpi = 96.0;   // sane fallback if no screen is available
+
+    if (QScreen* screen = QGuiApplication::primaryScreen())
+    {
+        // Prefer physical DPI (actual monitor pixel density) since this is
+        // about matching real-world centimetres on screen. Some platforms /
+        // monitors report bogus values, so fall back to logical DPI in that case.
+        const qreal physical = screen->physicalDotsPerInch();
+        screenDpi = (physical > 10.0 && physical < 2000.0)
+                  ? physical
+                  : screen->logicalDotsPerInch();
+    }
+
+    return screenDpi / pullautaRenderDpi;
+}
 
 
 PreviewPanel::PreviewPanel(QWidget* parent)
@@ -32,6 +68,7 @@ PreviewPanel::PreviewPanel(QWidget* parent)
     , currentScale(1.0)
     , minScale(0.01)
     , maxScale(10.0)
+    , trueScale(pullautaTrueScaleFactor())
     , isPanning(false)
 {
     // ---- Thumbnail list (left sidebar) ----------------------------------
@@ -69,13 +106,47 @@ PreviewPanel::PreviewPanel(QWidget* parent)
     imageTitle->setWordWrap(true);
     imageTitle->setVisible(false);   // hidden until an image is selected
 
-    // Zoom level label
+    // ---- Zoom controls bar (hidden until an image is loaded) ------------
+    zoomControls = new QWidget();
+    zoomControls->setVisible(false);
+    QHBoxLayout* zoomLayout = new QHBoxLayout(zoomControls);
+    zoomLayout->setContentsMargins(0, 0, 0, 0);
+    zoomLayout->setSpacing(4);
+
+    // Helper: creates one preset zoom button.
+    // percent == 0 means "Fit to window" (no fixed map scale).
+    // For the others we can show the corresponding OMap scale in the tooltip.
+    struct ZoomPreset { QString label; int percent; QString tooltip; };
+    const ZoomPreset presets[] = {
+        { "Fit",  0,   "Fit the whole map to the window" },
+        { "50%",  50,  "50% — 1:20,000" },
+        { "100%", 100, "100% — true 1:10,000 scale on this screen" },
+        { "200%", 200, "200% — 1:5,000" },
+        { "400%", 400, "400% — 1:2,500" },
+    };
+    for (const auto& p : presets)
+    {
+        QPushButton* btn = new QPushButton(p.label);
+        btn->setFixedWidth(46);
+        btn->setToolTip(p.tooltip);
+        const int pct = p.percent;
+        connect(btn, &QPushButton::clicked, this, [this, pct]() {
+            if (pct == 0) fitToWindow();
+            else          setZoomToPercent(pct);
+        });
+        zoomLayout->addWidget(btn);
+    }
+
+    zoomLayout->addStretch();
+
     zoomLabel = new QLabel("100%");
-    zoomLabel->setAlignment(Qt::AlignCenter);
-    QFont zoomFont = zoomLabel->font();
-    zoomFont.setPointSize(zoomFont.pointSize() - 1);
-    zoomLabel->setFont(zoomFont);
-    zoomLabel->setVisible(false);   // hidden until an image is loaded
+    zoomLabel->setAlignment(Qt::AlignVCenter | Qt::AlignRight);
+    {
+        QFont f = zoomLabel->font();
+        f.setPointSize(f.pointSize() - 1);
+        zoomLabel->setFont(f);
+    }
+    zoomLayout->addWidget(zoomLabel);
 
     // Page 0: placeholder  a plain label, no scroll area, no artifacts
     placeholderLabel = new QLabel(
@@ -105,8 +176,8 @@ PreviewPanel::PreviewPanel(QWidget* parent)
     rightLayout->setContentsMargins(4, 0, 0, 0);
     rightLayout->setSpacing(4);
     rightLayout->addWidget(previewHeader);
-    rightLayout->addWidget(imageTitle);   // filename  empty until a map is selected
-    rightLayout->addWidget(zoomLabel);    // zoom level percentage
+    rightLayout->addWidget(imageTitle);     // filename
+    rightLayout->addWidget(zoomControls);   // preset buttons + live percentage
     rightLayout->addWidget(stack, 1);
 
     QWidget* rightPane = new QWidget();
@@ -160,11 +231,68 @@ void PreviewPanel::setupGraphicsView()
 // --------------------------------------------------------------------------
 void PreviewPanel::updateZoomLabel()
 {
-    if (!zoomLabel->isVisible())
+    if (!zoomControls->isVisible())
         return;
-    
-    int percentage = static_cast<int>(currentScale * 100 + 0.5); // Round to nearest integer
+
+    // currentScale is the raw QGraphicsView transform (1 image px -> N screen px).
+    // trueScale is the transform that corresponds to physically correct 1:10,000
+    // on this screen. 100% should mean currentScale == trueScale, so we express
+    // the displayed percentage relative to trueScale rather than to 1.0.
+    const qreal relative = (trueScale > 0.0) ? (currentScale / trueScale) : currentScale;
+    const int percentage = static_cast<int>(relative * 100 + 0.5); // round to nearest int
     zoomLabel->setText(QString("%1%").arg(percentage));
+}
+
+
+// --------------------------------------------------------------------------
+// Private: setZoomToPercent
+// Sets zoom to a specific percentage relative to true 1:10,000 scale.
+// 100% means physically correct 1:10,000 on this screen.
+// --------------------------------------------------------------------------
+void PreviewPanel::setZoomToPercent(int percent)
+{
+    if (pixmapItem->pixmap().isNull()) return;
+
+    const qreal target = trueScale * (percent / 100.0);
+    const qreal clamped = qBound(minScale, target, maxScale);
+
+    graphicsView->resetTransform();
+    graphicsView->scale(clamped, clamped);
+    currentScale = clamped;
+    graphicsView->centerOn(pixmapItem);
+    updateZoomLabel();
+}
+
+// --------------------------------------------------------------------------
+// Private: zoomIn / zoomOut / resetZoom
+// Step-based helpers (same factor as the mouse wheel).
+// resetZoom jumps to true 1:10,000 scale (100%).
+// --------------------------------------------------------------------------
+void PreviewPanel::zoomIn()
+{
+    const qreal factor = 1.15;
+    if (currentScale < maxScale)
+    {
+        currentScale = qMin(currentScale * factor, maxScale);
+        graphicsView->scale(factor, factor);
+        updateZoomLabel();
+    }
+}
+
+void PreviewPanel::zoomOut()
+{
+    const qreal factor = 1.15;
+    if (currentScale > minScale)
+    {
+        currentScale = qMax(currentScale / factor, minScale);
+        graphicsView->scale(1.0 / factor, 1.0 / factor);
+        updateZoomLabel();
+    }
+}
+
+void PreviewPanel::resetZoom()
+{
+    setZoomToPercent(100);
 }
 
 // --------------------------------------------------------------------------
@@ -409,7 +537,7 @@ void PreviewPanel::showImage(const QString& filePath)
 
     imageTitle->setText(QFileInfo(filePath).fileName());
     imageTitle->setVisible(true);   // show filename bar once an image is loaded
-    zoomLabel->setVisible(true);     // show zoom level
+    zoomControls->setVisible(true);  // show zoom bar
     updateZoomLabel();              // update zoom percentage
 
     // Switch to the image page  placeholder disappears cleanly
@@ -424,7 +552,7 @@ void PreviewPanel::showPlaceholder()
 {
     imageTitle->clear();
     imageTitle->setVisible(false);  // no empty label hanging above the placeholder
-    zoomLabel->setVisible(false);   // hide zoom label
+    zoomControls->setVisible(false); // hide zoom bar
     stack->setCurrentIndex(0);
     
     // Reset graphics view state

@@ -41,6 +41,7 @@ private:
     void zoomIn();
     void zoomOut();
     void resetZoom();
+    void setZoomToPercent(int percent);   // e.g. 100 = true 1:10,000 scale
     void updateZoomLabel();
 
     QListWidget*        thumbnailList;
@@ -67,8 +68,14 @@ private:
     qreal currentScale;
     qreal minScale;
     qreal maxScale;
+
+    // The QGraphicsView transform scale that reproduces Karttapullautin's
+    // true 1:10,000 map scale on THIS screen's physical DPI.
+    // 100% zoom means currentScale == trueScale, not currentScale == 1.0.
+    qreal trueScale;
     
-    // Zoom level display
+    // Zoom controls bar (buttons + label) — hidden until an image is loaded
+    QWidget*            zoomControls;
     QLabel*             zoomLabel;
     
     // Mouse interaction state
