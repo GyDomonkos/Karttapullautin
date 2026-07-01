@@ -119,6 +119,7 @@ PreviewPanel::PreviewPanel(QWidget* parent)
     zoomLayout->addWidget(zoomTextLabel);
 
     zoomComboBox = new QComboBox();
+    zoomComboBox->setInsertPolicy(QComboBox::NoInsert);
     zoomComboBox->setEditable(true);
     zoomComboBox->setFixedWidth(140); // Increased width to fit the scale text
     
@@ -468,8 +469,13 @@ void PreviewPanel::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
 
-    if (!currentImagePath.isEmpty())
-        showImage(currentImagePath);
+    // Only recalculate layout if an image is actually loaded
+    if (!pixmapItem->pixmap().isNull())
+    {
+        // If the current view is roughly matching the 'Fit' state, keep fitting it
+        // Or simply call fitToWindow() on resize if you want 'Fit' to be persistent
+        fitToWindow(); 
+    }
 }
 
 // --------------------------------------------------------------------------
