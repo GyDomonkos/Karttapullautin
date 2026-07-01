@@ -12,6 +12,7 @@ class QFileSystemWatcher;
 class QStackedWidget;
 class QGraphicsScene;
 class QGraphicsPixmapItem;
+class QComboBox;
 
 class PreviewPanel : public QWidget
 {
@@ -42,7 +43,10 @@ private:
     void zoomOut();
     void resetZoom();
     void setZoomToPercent(int percent);   // e.g. 100 = true 1:10,000 scale
+    // old code - delete updateZoomLabel() and updateZoomDisplay() and applyZoomFromString() are new functions to handle zooming
     void updateZoomLabel();
+    void updateZoomDisplay();
+    void applyZoomFromString(QString text);
 
     QListWidget*        thumbnailList;
     QLabel*             imageTitle;
@@ -74,9 +78,15 @@ private:
     // 100% zoom means currentScale == trueScale, not currentScale == 1.0.
     qreal trueScale;
     
+    /*
     // Zoom controls bar (buttons + label) — hidden until an image is loaded
     QWidget*            zoomControls;
     QLabel*             zoomLabel;
+    */
+
+    // Zoom controls bar — hidden until an image is loaded
+    QWidget* zoomControls;
+    QComboBox* zoomComboBox; // <-- Replaced QLabel* zoomLabel
     
     // Mouse interaction state
     QPoint lastPanPoint;

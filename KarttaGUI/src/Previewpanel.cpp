@@ -25,6 +25,8 @@
 #include <QEvent>
 #include <QGuiApplication>
 #include <QScreen>
+#include <QComboBox>
+#include <QLineEdit>
 
 
 // --------------------------------------------------------------------------
@@ -113,43 +115,32 @@ PreviewPanel::PreviewPanel(QWidget* parent)
     zoomLayout->setContentsMargins(0, 0, 0, 0);
     zoomLayout->setSpacing(4);
 
-    // Helper: creates one preset zoom button.
-    // percent == 0 means "Fit to window" (no fixed map scale).
-    // For the others we can show the corresponding OMap scale in the tooltip.
-    struct ZoomPreset { QString label; int percent; QString tooltip; };
-    const ZoomPreset presets[] = {
-        { "Fit",  0,   "Fit the whole map to the window" },
-        { "50%",  50,  "50% — 1:20,000" },
-        { "66,6%",  66,  "66,67% — 1:15,000" },
-        { "100%", 100, "100% — true 1:10,000 scale on this screen" },
-        { "200%", 200, "200% — 1:5,000" },
-        { "250%", 250, "250% — 1:4,000" },
-        { "333%", 333, "333,33% — 1:3,000" },
-        { "400%", 400, "400% — 1:2,500" },
+    QLabel* zoomTextLabel = new QLabel("Zoom:");
+    zoomLayout->addWidget(zoomTextLabel);
+
+    zoomComboBox = new QComboBox();
+    zoomComboBox->setEditable(true); // Allows typing custom values
+    zoomComboBox->setFixedWidth(100);
+    
+    // Add presets
+    const QStringList presets = {
+        "Fit", "50%", "66.6%", "100%", "200%", "250%", "333%", "400%"
     };
-    for (const auto& p : presets)
-    {
-        QPushButton* btn = new QPushButton(p.label);
-        btn->setFixedWidth(46);
-        btn->setToolTip(p.tooltip);
-        const int pct = p.percent;
-        connect(btn, &QPushButton::clicked, this, [this, pct]() {
-            if (pct == 0) fitToWindow();
-            else          setZoomToPercent(pct);
-        });
-        zoomLayout->addWidget(btn);
-    }
+    zoomComboBox->addItems(presets);
 
+    // Handle user selecting an item from the dropdown list
+    connect(zoomComboBox, QOverload<int>::of(&QComboBox::activated), this, [this](int index) {
+        applyZoomFromString(zoomComboBox->itemText(index));
+    });
+    
+    // Handle user manually typing a value and pressing Enter
+    connect(zoomComboBox->lineEdit(), &QLineEdit::returnPressed, this, [this]() {
+        applyZoomFromString(zoomComboBox->lineEdit()->text());
+    });
+
+    zoomLayout->addWidget(zoomComboBox);
     zoomLayout->addStretch();
-
-    zoomLabel = new QLabel("100%");
-    zoomLabel->setAlignment(Qt::AlignVCenter | Qt::AlignRight);
-    {
-        QFont f = zoomLabel->font();
-        f.setPointSize(f.pointSize() - 1);
-        zoomLabel->setFont(f);
-    }
-    zoomLayout->addWidget(zoomLabel);
+    // ---------------------------------------------------------------------
 
     // Page 0: placeholder - a plain label, no scroll area, no artifacts
     placeholderLabel = new QLabel(
@@ -229,21 +220,51 @@ void PreviewPanel::setupGraphicsView()
 }
 
 // --------------------------------------------------------------------------
-// Private: updateZoomLabel
-// Updates the zoom level display in percentage
+// Private: applyZoomFromString
+// Parses the text from the combobox and applies the zoom
 // --------------------------------------------------------------------------
-void PreviewPanel::updateZoomLabel()
+void PreviewPanel::applyZoomFromString(QString text)
+{
+    if (text.compare("Fit", Qt::CaseInsensitive) == 0)
+    {
+        fitToWindow();
+        return;
+    }
+
+    // Clean up the string to extract the number
+    text.remove('%');
+    text.remove(' ');
+    text.replace(',', '.'); // Tolerate comma as decimal separator
+
+    bool ok;
+    double val = text.toDouble(&ok);
+    if (ok && val > 0.0)
+    {
+        setZoomToPercent(static_cast<int>(val));
+    }
+    else
+    {
+        // If the text is invalid (e.g. letters), revert to current zoom level
+        updateZoomDisplay();
+    }
+}
+
+// --------------------------------------------------------------------------
+// Private: updateZoomDisplay
+// Updates the combobox line edit to reflect current zoom percentage
+// --------------------------------------------------------------------------
+void PreviewPanel::updateZoomDisplay()
 {
     if (!zoomControls->isVisible())
         return;
 
-    // currentScale is the raw QGraphicsView transform (1 image px -> N screen px).
-    // trueScale is the transform that corresponds to physically correct 1:10,000
-    // on this screen. 100% should mean currentScale == trueScale, so we express
-    // the displayed percentage relative to trueScale rather than to 1.0.
     const qreal relative = (trueScale > 0.0) ? (currentScale / trueScale) : currentScale;
-    const int percentage = static_cast<int>(relative * 100 + 0.5); // round to nearest int
-    zoomLabel->setText(QString("%1%").arg(percentage));
+    const int percentage = static_cast<int>(relative * 100 + 0.5);
+
+    // Block signals so programmatic text changes don't trigger the returnPressed signal
+    bool oldState = zoomComboBox->blockSignals(true);
+    zoomComboBox->lineEdit()->setText(QString("%1%").arg(percentage));
+    zoomComboBox->blockSignals(oldState);
 }
 
 
@@ -263,7 +284,7 @@ void PreviewPanel::setZoomToPercent(int percent)
     graphicsView->scale(clamped, clamped);
     currentScale = clamped;
     graphicsView->centerOn(pixmapItem);
-    updateZoomLabel();
+    updateZoomDisplay();
 }
 
 // --------------------------------------------------------------------------
@@ -278,7 +299,7 @@ void PreviewPanel::zoomIn()
     {
         currentScale = qMin(currentScale * factor, maxScale);
         graphicsView->scale(factor, factor);
-        updateZoomLabel();
+        updateZoomDisplay();
     }
 }
 
@@ -289,7 +310,7 @@ void PreviewPanel::zoomOut()
     {
         currentScale = qMax(currentScale / factor, minScale);
         graphicsView->scale(1.0 / factor, 1.0 / factor);
-        updateZoomLabel();
+        updateZoomDisplay();
     }
 }
 
@@ -321,7 +342,7 @@ bool PreviewPanel::eventFilter(QObject* obj, QEvent* event)
                     currentScale *= scaleFactor;
                     if (currentScale > maxScale) currentScale = maxScale;
                     graphicsView->scale(scaleFactor, scaleFactor);
-                    updateZoomLabel();
+                    updateZoomDisplay();
                 }
             }
             else if (wheelEvent->angleDelta().y() < 0)
@@ -332,7 +353,7 @@ bool PreviewPanel::eventFilter(QObject* obj, QEvent* event)
                     currentScale /= scaleFactor;
                     if (currentScale < minScale) currentScale = minScale;
                     graphicsView->scale(1.0 / scaleFactor, 1.0 / scaleFactor);
-                    updateZoomLabel();
+                    updateZoomDisplay();
                 }
             }
             
@@ -541,7 +562,7 @@ void PreviewPanel::showImage(const QString& filePath)
     imageTitle->setText(QFileInfo(filePath).fileName());
     imageTitle->setVisible(true);   // show filename bar once an image is loaded
     zoomControls->setVisible(true);  // show zoom bar
-    updateZoomLabel();              // update zoom percentage
+    updateZoomDisplay();              // update zoom percentage
 
     // Switch to the image page  placeholder disappears cleanly
     stack->setCurrentIndex(1);
@@ -594,7 +615,7 @@ void PreviewPanel::fitToWindow()
             graphicsView->resetTransform();
             graphicsView->scale(scale, scale);
             currentScale = scale;
-            updateZoomLabel(); // Update zoom percentage after fit
+            updateZoomDisplay(); // Update zoom percentage after fit
             
             // Center the image
             graphicsView->centerOn(pixmapItem);
