@@ -120,8 +120,11 @@ PreviewPanel::PreviewPanel(QWidget* parent)
     const ZoomPreset presets[] = {
         { "Fit",  0,   "Fit the whole map to the window" },
         { "50%",  50,  "50% — 1:20,000" },
+        { "66,6%",  66,  "66,67% — 1:15,000" },
         { "100%", 100, "100% — true 1:10,000 scale on this screen" },
         { "200%", 200, "200% — 1:5,000" },
+        { "250%", 250, "250% — 1:4,000" },
+        { "333%", 333, "333,33% — 1:3,000" },
         { "400%", 400, "400% — 1:2,500" },
     };
     for (const auto& p : presets)
@@ -148,11 +151,11 @@ PreviewPanel::PreviewPanel(QWidget* parent)
     }
     zoomLayout->addWidget(zoomLabel);
 
-    // Page 0: placeholder  a plain label, no scroll area, no artifacts
+    // Page 0: placeholder - a plain label, no scroll area, no artifacts
     placeholderLabel = new QLabel(
         "No maps yet.\n\n"
         "Select an output folder and\n"
-        "press Run  maps will appear\n"
+        "press Run - maps will appear\n"
         "here as each tile completes."
     );
     placeholderLabel->setAlignment(Qt::AlignCenter);
@@ -165,7 +168,7 @@ PreviewPanel::PreviewPanel(QWidget* parent)
     stack->addWidget(graphicsView);      // index 1
     stack->setCurrentIndex(0);            // start on placeholder
 
-    // Permanent header  always visible regardless of whether an image is loaded
+    // Permanent header - always visible regardless of whether an image is loaded
     QLabel* previewHeader = new QLabel("Map Preview (Use mouse wheel to zoom, drag to pan)");
     QFont headerFont = previewHeader->font();
     headerFont.setBold(true);
