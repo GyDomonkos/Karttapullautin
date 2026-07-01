@@ -119,14 +119,22 @@ PreviewPanel::PreviewPanel(QWidget* parent)
     zoomLayout->addWidget(zoomTextLabel);
 
     zoomComboBox = new QComboBox();
-    zoomComboBox->setEditable(true); // Allows typing custom values
-    zoomComboBox->setFixedWidth(100);
+    zoomComboBox->setEditable(true);
+    zoomComboBox->setFixedWidth(140); // Increased width to fit the scale text
     
-    // Add presets
+    // Add presets with their corresponding scales
     const QStringList presets = {
-        "Fit", "50%", "66.6%", "100%", "200%", "250%", "333%", "400%"
+        "Fit", 
+        "50% — 1:20,000", 
+        "67% — 1:15,000", 
+        "100% — 1:10,000", 
+        "200% — 1:5,000", 
+        "250% — 1:4,000", 
+        "333% — 1:3,000", 
+        "400% — 1:2,500"
     };
     zoomComboBox->addItems(presets);
+
 
     // Handle user selecting an item from the dropdown list
     connect(zoomComboBox, QOverload<int>::of(&QComboBox::activated), this, [this](int index) {
@@ -225,26 +233,26 @@ void PreviewPanel::setupGraphicsView()
 // --------------------------------------------------------------------------
 void PreviewPanel::applyZoomFromString(QString text)
 {
-    if (text.compare("Fit", Qt::CaseInsensitive) == 0)
+    if (text.startsWith("Fit", Qt::CaseInsensitive))
     {
         fitToWindow();
         return;
     }
 
-    // Clean up the string to extract the number
-    text.remove('%');
-    text.remove(' ');
-    text.replace(',', '.'); // Tolerate comma as decimal separator
+    // Isolate the number part (e.g., from "50% — 1:20,000" we just want "50")
+    QString numStr = text.section('%', 0, 0).trimmed(); // take everything before '%'
+    numStr = numStr.section(' ', 0, 0).trimmed();       // fallback: take everything before first space
+    numStr.replace(',', '.');                           // tolerate commas as decimals
 
     bool ok;
-    double val = text.toDouble(&ok);
+    double val = numStr.toDouble(&ok);
     if (ok && val > 0.0)
     {
         setZoomToPercent(static_cast<int>(val));
     }
     else
     {
-        // If the text is invalid (e.g. letters), revert to current zoom level
+        // Invalid text, revert to whatever the current zoom actually is
         updateZoomDisplay();
     }
 }
@@ -261,9 +269,18 @@ void PreviewPanel::updateZoomDisplay()
     const qreal relative = (trueScale > 0.0) ? (currentScale / trueScale) : currentScale;
     const int percentage = static_cast<int>(relative * 100 + 0.5);
 
-    // Block signals so programmatic text changes don't trigger the returnPressed signal
+    QString displayText = QString("%1%").arg(percentage);
+
+    // If the current percentage matches a preset, show the full descriptive label
+    int presetIndex = zoomComboBox->findText(displayText, Qt::MatchStartsWith);
+    if (presetIndex != -1)
+    {
+        displayText = zoomComboBox->itemText(presetIndex);
+    }
+
+    // Update the UI silently
     bool oldState = zoomComboBox->blockSignals(true);
-    zoomComboBox->lineEdit()->setText(QString("%1%").arg(percentage));
+    zoomComboBox->lineEdit()->setText(displayText);
     zoomComboBox->blockSignals(oldState);
 }
 
