@@ -2,6 +2,7 @@
 #include "KarttaRunner.h"
 #include "PreviewPanel.h"
 #include "SettingsPanel.h"
+#include "ToolsPanel.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -59,14 +60,16 @@ MainWindow::MainWindow(QWidget* parent)
     , totalTiles(0)
     , completedTiles(0)
     , wasCancelled(false)
+    , isToolRun(false)
 {
     setWindowIcon(QIcon("resources/icon.png"));
     setAcceptDrops(true);   // enable folder / LAS drag-and-drop onto the window
 
-    QTabWidget* tabs = new QTabWidget();
+    // FIX: Assigned directly to the class member variable instead of a local variable
+    tabWidget = new QTabWidget(this);
 
     // ---- Tab 0: Run ------------------------------------------------------
-    QWidget*     runTab    = new QWidget();
+    QWidget* runTab    = new QWidget();
     QVBoxLayout* runLayout = new QVBoxLayout(runTab);
 
     // Input row
@@ -112,22 +115,30 @@ MainWindow::MainWindow(QWidget* parent)
     runLayout->addWidget(progressBar);
     runLayout->addWidget(outputText);
 
-    tabs->addTab(runTab, "Run");
+    tabWidget->addTab(runTab, "Run");
 
     // ---- Tab 1: Settings ------------------------------------------------
     settingsPanel = new SettingsPanel();
-    tabs->addTab(settingsPanel, "Settings");
+    tabWidget->addTab(settingsPanel, "Settings");
 
     const QString iniPath =
         QCoreApplication::applicationDirPath() + "/karttapullautin/pullauta.ini";
     settingsPanel->loadFromIni(iniPath);
+
+    // ---- Tab 2: Tools ---------------------------------------------------
+    toolsPanel = new ToolsPanel(this);
+    tabWidget->addTab(toolsPanel, "Tools");
+    tabWidget->setTabEnabled(2, false); // Keep disabled until an initial successful run occurs
+
+    // Connect the panel's action signal directly into our executor
+    connect(toolsPanel, &ToolsPanel::toolActionRequested, this, &MainWindow::runToolCommand);
 
     // ---- Preview panel --------------------------------------------------
     previewPanel = new PreviewPanel();
 
     // ---- Splitter -------------------------------------------------------
     QSplitter* splitter = new QSplitter(Qt::Horizontal);
-    splitter->addWidget(tabs);
+    splitter->addWidget(tabWidget);
     splitter->addWidget(previewPanel);
     splitter->setStretchFactor(0, 2);
     splitter->setStretchFactor(1, 3);
@@ -156,8 +167,6 @@ MainWindow::MainWindow(QWidget* parent)
 // Drag & drop
 // ==========================================================================
 
-// Accept the drag if it carries at least one local path that is either a
-// directory or a LAS/LAZ file (in which case we'll use its parent folder).
 void MainWindow::dragEnterEvent(QDragEnterEvent* event)
 {
     if (!event->mimeData()->hasUrls()) { event->ignore(); return; }
@@ -184,13 +193,13 @@ void MainWindow::dropEvent(QDropEvent* event)
         if (info.isDir())
             folder = info.absoluteFilePath();
         else if (info.suffix().toLower() == "las" || info.suffix().toLower() == "laz")
-            folder = info.absolutePath();   // use the containing folder
+            folder = info.absolutePath();
 
         if (!folder.isEmpty())
         {
             applyInputFolder(folder);
             event->acceptProposedAction();
-            return;   // only handle the first valid item
+            return;
         }
     }
 }
@@ -207,7 +216,6 @@ void MainWindow::browseInput()
         applyInputFolder(dir);
 }
 
-// Shared logic used by both browseInput() and dropEvent().
 void MainWindow::applyInputFolder(const QString& folderPath)
 {
     if (!QDir(folderPath).exists())
@@ -265,6 +273,7 @@ void MainWindow::startKarttapullautin()
     totalTiles     = QDir(inputFolder).entryList(lazFilters, QDir::Files).count();
     completedTiles = 0;
     wasCancelled   = false;
+    isToolRun      = false;
 
     progressBar->setMinimum(0);
     progressBar->setMaximum(totalTiles > 0 ? totalTiles : 1);
@@ -333,18 +342,29 @@ void MainWindow::handleOutput(const QString& text)
 
 void MainWindow::handleFinished(int exitCode)
 {
-    if (wasCancelled)
+    if (wasCancelled) {
         outputText->append("\nRun cancelled.");
-    else if (exitCode == 0)
-        outputText->append("\nAll tiles processed successfully.");
-    else
-        outputText->append("\nProcess finished with exit code: "
-                           + QString::number(exitCode));
+    } else if (exitCode == 0) {
+        outputText->append("\nProcess finished successfully.");
+    } else {
+        outputText->append("\nProcess finished with exit code: " + QString::number(exitCode));
+    }
 
     wasCancelled = false;
     runButton->setEnabled(true);
     cancelButton->setEnabled(false);
     progressBar->setVisible(false);
+
+    if (exitCode == 0) {
+        if (!isToolRun) {
+            // It was a batch run. Unlock the tools!
+            tabWidget->setTabEnabled(2, true); 
+            outputText->append("\nPost-processing tools are now available in the 'Tools' tab.");
+        } else {
+            // It was a tool run. Sweep the directory for merged files!
+            moveMergedFilesToOutput();
+        }
+    }
 }
 
 // ==========================================================================
@@ -364,7 +384,7 @@ bool MainWindow::writeIniValues(const QString& iniPath,
 
     while (!in.atEnd())
     {
-        QString line    = in.readLine();
+        QString line = in.readLine();
         QString trimmed = line.trimmed();
         bool    replaced = false;
 
@@ -426,4 +446,69 @@ bool MainWindow::writeIniValues(const QString& iniPath,
         out << line << "\n";
 
     return true;
+}
+
+void MainWindow::runToolCommand(const QStringList& args)
+{
+    QString outputPath = outputEdit->text().trimmed();
+    if (outputPath.isEmpty() || !QDir(outputPath).exists()) {
+        outputText->append("\n[Error] Action Aborted: Please select a valid Output Folder first. Tools operate on files existing inside that directory.");
+        return;
+    }
+
+    // Switch view to the Run/Log tab so the user can watch the output.
+    tabWidget->setCurrentIndex(0);
+
+    runButton->setEnabled(false);
+    cancelButton->setEnabled(true);
+    isToolRun = true;
+    outputText->append(QString("\nExecuting tool command: pullauta %1").arg(args.join(" ")));
+
+    QString iniPath = QCoreApplication::applicationDirPath() + "/karttapullautin/pullauta.ini";
+    writeIniValues(iniPath, settingsPanel->values(), settingsPanel->disabledOptionalKeys());
+
+    QString executable = QCoreApplication::applicationDirPath() + "/karttapullautin/pullauta";
+#if defined(Q_OS_WIN)
+    executable += ".exe";
+#endif
+
+    runner->run(executable, args);
+}
+
+
+void MainWindow::moveMergedFilesToOutput()
+{
+    const QString baseDir = QCoreApplication::applicationDirPath() + "/karttapullautin";
+    const QString outDir = outputEdit->text().trimmed();
+    QDir pullautaDir(baseDir);
+    
+    // The specific prefixes Karttapullautin generates when merging
+    QStringList filters;
+    filters << "merged*.png" << "merged*.jpg" 
+            << "merged*.pgw" << "merged*.jgw"
+            << "vege*.png"   << "vege*.jpg"
+            << "*merge*.dxf";
+            
+    QFileInfoList generatedFiles = pullautaDir.entryInfoList(filters, QDir::Files);
+    
+    bool movedAny = false;
+    for (const QFileInfo& fileInfo : generatedFiles) {
+        QString sourcePath = fileInfo.absoluteFilePath();
+        QString destPath = outDir + "/" + fileInfo.fileName();
+        
+        // Remove existing destination file if it exists to allow overwrite
+        if (QFile::exists(destPath)) {
+            QFile::remove(destPath);
+        }
+        
+        // Move the file
+        if (QFile::rename(sourcePath, destPath)) {
+            outputText->append("Moved output file to: " + destPath);
+            movedAny = true;
+        }
+    }
+    
+    if (movedAny) {
+        outputText->append("All merged files have been safely moved to your Output Folder.");
+    }
 }

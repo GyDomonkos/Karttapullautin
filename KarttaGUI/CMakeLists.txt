@@ -18,6 +18,7 @@ add_executable(KarttaGUI
     src/KarttaRunner.cpp
     src/PreviewPanel.cpp
     src/SettingsPanel.cpp
+    src/ToolsPanel.cpp
     resources/resources.rc
 )
 
