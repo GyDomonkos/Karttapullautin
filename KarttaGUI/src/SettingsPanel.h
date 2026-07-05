@@ -4,6 +4,7 @@
 #include <QMap>
 #include <QSet>
 #include <QVector>
+#include <QJsonObject>
 
 class QDoubleSpinBox;
 class QSpinBox;
@@ -19,21 +20,33 @@ public:
     explicit SettingsPanel(QWidget* parent = nullptr);
 
     void loadFromIni(const QString& iniPath);
-    void resetToDefaults();                    // restores all controls to hardcoded defaults
-    QMap<QString, QString> values() const;
+    void resetToDefaults();
 
-    // Keys that should be commented out in the INI (optional features disabled by user)
-    QSet<QString> disabledOptionalKeys() const;
+    // Preset serialisation — used by the preset bar and by MainWindow
+    QJsonObject toJson() const;
+    void        fromJson(const QJsonObject& obj);
+
+    QMap<QString, QString> values() const;
+    QSet<QString>          disabledOptionalKeys() const;
+
+private slots:
+    void onSavePreset();
+    void onLoadPreset();
+    void onDeletePreset();
 
 private:
-    void addShadeLevel(double value);     // appends a row to the shade list
-    void clearShadeLevels();              // removes all rows + clears greenShadeBoxes
+    void refreshPresetList();
+    void addShadeLevel(double value);
+    void clearShadeLevels();
 
     QDoubleSpinBox* makeDouble(double min, double max, double step,
                                int dec, double defaultVal,
                                const QString& tooltip = {});
     QSpinBox*       makeInt(int min, int max, int defaultVal,
                             const QString& tooltip = {});
+
+    // ---- Preset bar -----------------------------------------------------
+    QComboBox* presetCombo;
 
     // ---- Contours -------------------------------------------------------
     QDoubleSpinBox* contourInterval;
@@ -49,9 +62,9 @@ private:
     QDoubleSpinBox* greenground;
     QDoubleSpinBox* greenhigh;
     QDoubleSpinBox* yellowheight;
-    QDoubleSpinBox* yellowthresold;   // typo matches the INI key
+    QDoubleSpinBox* yellowthresold;
 
-    QVBoxLayout*             shadesLayout;   // holds the dynamic level rows
+    QVBoxLayout*             shadesLayout;
     QVector<QDoubleSpinBox*> greenShadeBoxes;
 
     // ---- Cliffs ---------------------------------------------------------
@@ -68,8 +81,10 @@ private:
     QDoubleSpinBox* scalefactor;
     QDoubleSpinBox* zoffset;
     QCheckBox*      outputDxf;
+    QCheckBox*      savetempfiles;
+    QCheckBox*      savetempfolders;
 
-    // ---- Optional features (enable = uncomment in INI) ------------------
+    // ---- Optional features ----------------------------------------------
     QCheckBox*      waterclassCheck;
     QSpinBox*       waterclassBox;
     QCheckBox*      waterElevCheck;

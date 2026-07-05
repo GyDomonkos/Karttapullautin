@@ -15,6 +15,11 @@
 #include <QFile>
 #include <QTextStream>
 #include <QFrame>
+#include <QInputDialog>
+#include <QMessageBox>
+#include <QJsonArray>
+#include <QRegularExpression>
+#include "PresetManager.h"
 
 
 SettingsPanel::SettingsPanel(QWidget* parent)
@@ -195,8 +200,24 @@ SettingsPanel::SettingsPanel(QWidget* parent)
         form->addRow("Z offset (m):", zoffset);
 
         outputDxf = new QCheckBox("Export DXF contour layer");
-        outputDxf->setToolTip("Also write raw DXF contours alongside the PNG map");
+        outputDxf->setToolTip(
+            "Write DXF vector contour/cliff files alongside each PNG tile.\n"
+            "Required for the DXF Merge tool in the Tools tab.");
         form->addRow("DXF output:", outputDxf);
+
+        savetempfiles = new QCheckBox("Save vector/vege files per tile to output folder");
+        savetempfiles->setToolTip(
+            "Copies each tile's DXF and vegetation PNG files into the output folder.\n"
+            "Required for the 'Merge DXF' and 'Merge Vegetation' tools.\n"
+            "Enable this before running the batch if you plan to use those tools.");
+        form->addRow("Save temp files:", savetempfiles);
+
+        savetempfolders = new QCheckBox("Save full temp folder per tile");
+        savetempfolders->setToolTip(
+            "Keeps the complete intermediate data for every processed tile.\n"
+            "Required for 'Regenerate Vegetation' and 'Regenerate Cliffs' tools.\n"
+            "Warning: significantly increases disk usage for large batches.");
+        form->addRow("Save temp folders:", savetempfolders);
 
         vbox->addWidget(group);
     }
@@ -270,9 +291,49 @@ SettingsPanel::SettingsPanel(QWidget* parent)
 
     scroll->setWidget(content);
 
+    // ---- Preset bar (always visible above the scroll area) ---------------
+    QWidget*     presetBar    = new QWidget();
+    QHBoxLayout* presetLayout = new QHBoxLayout(presetBar);
+    presetLayout->setContentsMargins(6, 6, 6, 4);
+    presetLayout->setSpacing(6);
+
+    presetCombo = new QComboBox();
+    presetCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    presetCombo->setToolTip("Saved settings presets");
+
+    QPushButton* loadPresetBtn   = new QPushButton("Load");
+    QPushButton* savePresetBtn   = new QPushButton("Save As…");
+    QPushButton* deletePresetBtn = new QPushButton("Delete");
+    loadPresetBtn->setFixedWidth(52);
+    savePresetBtn->setFixedWidth(80);
+    deletePresetBtn->setFixedWidth(60);
+    loadPresetBtn->setToolTip("Load the selected preset into the settings form");
+    savePresetBtn->setToolTip("Save the current settings as a named preset");
+    deletePresetBtn->setToolTip("Permanently delete the selected preset");
+
+    presetLayout->addWidget(new QLabel("Preset:"));
+    presetLayout->addWidget(presetCombo, 1);
+    presetLayout->addWidget(loadPresetBtn);
+    presetLayout->addWidget(savePresetBtn);
+    presetLayout->addWidget(deletePresetBtn);
+
+    connect(loadPresetBtn,   &QPushButton::clicked, this, &SettingsPanel::onLoadPreset);
+    connect(savePresetBtn,   &QPushButton::clicked, this, &SettingsPanel::onSavePreset);
+    connect(deletePresetBtn, &QPushButton::clicked, this, &SettingsPanel::onDeletePreset);
+
+    // Separator line between preset bar and scroll area
+    QFrame* sep = new QFrame();
+    sep->setFrameShape(QFrame::HLine);
+    sep->setFrameShadow(QFrame::Sunken);
+
     QVBoxLayout* outerLayout = new QVBoxLayout(this);
     outerLayout->setContentsMargins(0, 0, 0, 0);
-    outerLayout->addWidget(scroll);
+    outerLayout->setSpacing(0);
+    outerLayout->addWidget(presetBar);
+    outerLayout->addWidget(sep);
+    outerLayout->addWidget(scroll, 1);
+
+    refreshPresetList();
 }
 
 // --------------------------------------------------------------------------
@@ -315,6 +376,8 @@ void SettingsPanel::resetToDefaults()
     scalefactor->setValue(1.0);
     zoffset->setValue(0.0);
     outputDxf->setChecked(false);
+    savetempfiles->setChecked(false);
+    savetempfolders->setChecked(false);
 
     // Optional features — all off by default
     waterclassCheck->setChecked(false);
@@ -396,6 +459,10 @@ void SettingsPanel::loadFromIni(const QString& iniPath)
     setDbl(zoffset,         "zoffset");
     if (ini.contains("output_dxf"))
         outputDxf->setChecked(ini["output_dxf"] == "1");
+    if (ini.contains("savetempfiles"))
+        savetempfiles->setChecked(ini["savetempfiles"] == "1");
+    if (ini.contains("savetempfolders"))
+        savetempfolders->setChecked(ini["savetempfolders"] == "1");
 
     // Optional features — only enabled if the key is present and active in the INI
     if (ini.contains("waterclass")) {
@@ -458,6 +525,8 @@ QMap<QString, QString> SettingsPanel::values() const
     v["scalefactor"]     = d(scalefactor->value());
     v["zoffset"]         = d(zoffset->value());
     v["output_dxf"]      = outputDxf->isChecked() ? "1" : "0";
+    v["savetempfiles"]   = savetempfiles->isChecked() ? "1" : "0";
+    v["savetempfolders"] = savetempfolders->isChecked() ? "1" : "0";
 
     // Optional features — only add active ones; disabled ones go via disabledOptionalKeys()
     if (waterclassCheck->isChecked())
@@ -551,4 +620,241 @@ QSpinBox* SettingsPanel::makeInt(int min, int max, int defaultVal,
     sb->setValue(defaultVal);
     if (!tooltip.isEmpty()) sb->setToolTip(tooltip);
     return sb;
+}
+
+// --------------------------------------------------------------------------
+// Private: refreshPresetList
+// --------------------------------------------------------------------------
+void SettingsPanel::refreshPresetList()
+{
+    const QString current = presetCombo->currentIndex() > 0
+                          ? presetCombo->currentText() : QString();
+
+    presetCombo->clear();
+    presetCombo->addItem("— select preset —");
+    for (const QString& name : PresetManager::list())
+        presetCombo->addItem(name);
+
+    // Reselect the previously selected preset if it still exists
+    if (!current.isEmpty())
+    {
+        const int idx = presetCombo->findText(current);
+        if (idx >= 0) presetCombo->setCurrentIndex(idx);
+    }
+}
+
+// --------------------------------------------------------------------------
+// Private slot: onSavePreset
+// --------------------------------------------------------------------------
+void SettingsPanel::onSavePreset()
+{
+    bool ok = false;
+    const QString name = QInputDialog::getText(
+        this, "Save Preset",
+        "Preset name:",
+        QLineEdit::Normal, {}, &ok).trimmed();
+
+    if (!ok || name.isEmpty()) return;
+
+    // Warn if overwriting an existing preset
+    if (PresetManager::list().contains(name))
+    {
+        const auto btn = QMessageBox::question(
+            this, "Overwrite Preset",
+            QString("A preset named \"%1\" already exists.\nOverwrite it?").arg(name));
+        if (btn != QMessageBox::Yes) return;
+    }
+
+    if (PresetManager::save(name, toJson()))
+    {
+        refreshPresetList();
+        presetCombo->setCurrentText(name);
+    }
+    else
+    {
+        QMessageBox::warning(this, "Save Failed",
+            "Could not write the preset file.\nCheck that the presets folder is writable.");
+    }
+}
+
+// --------------------------------------------------------------------------
+// Private slot: onLoadPreset
+// --------------------------------------------------------------------------
+void SettingsPanel::onLoadPreset()
+{
+    if (presetCombo->currentIndex() <= 0) return;   // placeholder selected
+
+    const QString name = presetCombo->currentText();
+    const QJsonObject obj = PresetManager::load(name);
+
+    if (obj.isEmpty())
+    {
+        QMessageBox::warning(this, "Load Failed",
+            QString("Could not read preset \"%1\".").arg(name));
+        return;
+    }
+
+    fromJson(obj);
+}
+
+// --------------------------------------------------------------------------
+// Private slot: onDeletePreset
+// --------------------------------------------------------------------------
+void SettingsPanel::onDeletePreset()
+{
+    if (presetCombo->currentIndex() <= 0) return;
+
+    const QString name = presetCombo->currentText();
+    const auto btn = QMessageBox::question(
+        this, "Delete Preset",
+        QString("Permanently delete preset \"%1\"?").arg(name));
+
+    if (btn != QMessageBox::Yes) return;
+
+    PresetManager::remove(name);
+    refreshPresetList();
+}
+
+// --------------------------------------------------------------------------
+// Public: toJson
+// --------------------------------------------------------------------------
+QJsonObject SettingsPanel::toJson() const
+{
+    auto d = [](double v) -> double { return v; };   // keep full precision in JSON
+    QJsonObject obj;
+    obj["version"] = 1;
+
+    // Contours
+    obj["contour_interval"] = d(contourInterval->value());
+    obj["formline"]         = formlineMode->currentIndex();
+    obj["smoothing"]        = d(smoothing->value());
+    obj["curviness"]        = d(curviness->value());
+    obj["knolls"]           = d(knolls->value());
+    obj["indexcontours"]    = d(indexContours->value());
+
+    // Vegetation
+    obj["undergrowth"]    = d(undergrowth->value());
+    obj["undergrowth2"]   = d(undergrowth2->value());
+    obj["greenground"]    = d(greenground->value());
+    obj["greenhigh"]      = d(greenhigh->value());
+    obj["yellowheight"]   = d(yellowheight->value());
+    obj["yellowthresold"] = d(yellowthresold->value());
+
+    // Greenshades as a proper JSON array
+    QJsonArray shadesArr;
+    for (auto* sb : greenShadeBoxes)
+        shadesArr.append(sb->value());
+    obj["greenshades"] = shadesArr;
+
+    // Cliffs
+    obj["cliff1"]            = d(cliff1->value());
+    obj["cliff2"]            = d(cliff2->value());
+    obj["cliffsteepfactor"]  = d(cliffsteepfactor->value());
+    obj["cliffflatplace"]    = d(cliffflatplace->value());
+    obj["cliffnosmallciffs"] = d(cliffnosmallciffs->value());
+
+    // Processing
+    obj["processes"]       = processes->value();
+    obj["northlinesangle"] = d(northlinesangle->value());
+    obj["northlineswidth"] = northlineswidth->value();
+    obj["scalefactor"]     = d(scalefactor->value());
+    obj["zoffset"]         = d(zoffset->value());
+    obj["output_dxf"]      = outputDxf->isChecked();
+    obj["savetempfiles"]   = savetempfiles->isChecked();
+    obj["savetempfolders"] = savetempfolders->isChecked();
+
+    // Optional features — save both the enabled flag and the value so the
+    // user can toggle them off without losing the configured value
+    obj["waterclass_enabled"]    = waterclassCheck->isChecked();
+    obj["waterclass"]            = waterclassBox->value();
+    obj["waterelevation_enabled"]= waterElevCheck->isChecked();
+    obj["waterelevation"]        = d(waterElevBox->value());
+    obj["buildingsclass_enabled"]= buildingsclassCheck->isChecked();
+    obj["buildingsclass"]        = buildingsclassBox->value();
+    obj["detectbuildings"]       = detectBuildingsCheck->isChecked();
+
+    return obj;
+}
+
+// --------------------------------------------------------------------------
+// Public: fromJson
+// Applies a preset JSON object to all controls.
+// Unlike loadFromIni, this DOES overwrite the greenshades list because a
+// preset is an explicit user save/load action.
+// --------------------------------------------------------------------------
+void SettingsPanel::fromJson(const QJsonObject& obj)
+{
+    auto dbl = [&](const QString& key, QDoubleSpinBox* sb) {
+        if (obj.contains(key)) sb->setValue(obj[key].toDouble());
+    };
+    auto intVal = [&](const QString& key, QSpinBox* sb) {
+        if (obj.contains(key)) sb->setValue(obj[key].toInt());
+    };
+
+    // Contours
+    dbl("contour_interval", contourInterval);
+    if (obj.contains("formline")) {
+        const int v = obj["formline"].toInt();
+        if (v >= 0 && v <= 2) formlineMode->setCurrentIndex(v);
+    }
+    dbl("smoothing",     smoothing);
+    dbl("curviness",     curviness);
+    dbl("knolls",        knolls);
+    dbl("indexcontours", indexContours);
+
+    // Vegetation
+    dbl("undergrowth",    undergrowth);
+    dbl("undergrowth2",   undergrowth2);
+    dbl("greenground",    greenground);
+    dbl("greenhigh",      greenhigh);
+    dbl("yellowheight",   yellowheight);
+    dbl("yellowthresold", yellowthresold);
+
+    // Greenshades — explicit user action, so we replace the current list
+    if (obj.contains("greenshades") && obj["greenshades"].isArray())
+    {
+        const QJsonArray arr = obj["greenshades"].toArray();
+        if (!arr.isEmpty())
+        {
+            clearShadeLevels();
+            for (const QJsonValue& v : arr)
+                addShadeLevel(v.toDouble());
+        }
+    }
+
+    // Cliffs
+    dbl("cliff1",            cliff1);
+    dbl("cliff2",            cliff2);
+    dbl("cliffsteepfactor",  cliffsteepfactor);
+    dbl("cliffflatplace",    cliffflatplace);
+    dbl("cliffnosmallciffs", cliffnosmallciffs);
+
+    // Processing
+    intVal("processes",       processes);
+    dbl("northlinesangle",    northlinesangle);
+    intVal("northlineswidth", northlineswidth);
+    dbl("scalefactor",        scalefactor);
+    dbl("zoffset",            zoffset);
+    if (obj.contains("output_dxf"))
+        outputDxf->setChecked(obj["output_dxf"].toBool());
+    if (obj.contains("savetempfiles"))
+        savetempfiles->setChecked(obj["savetempfiles"].toBool());
+    if (obj.contains("savetempfolders"))
+        savetempfolders->setChecked(obj["savetempfolders"].toBool());
+
+    // Optional features
+    if (obj.contains("waterclass_enabled")) {
+        waterclassCheck->setChecked(obj["waterclass_enabled"].toBool());
+        intVal("waterclass", waterclassBox);
+    }
+    if (obj.contains("waterelevation_enabled")) {
+        waterElevCheck->setChecked(obj["waterelevation_enabled"].toBool());
+        dbl("waterelevation", waterElevBox);
+    }
+    if (obj.contains("buildingsclass_enabled")) {
+        buildingsclassCheck->setChecked(obj["buildingsclass_enabled"].toBool());
+        intVal("buildingsclass", buildingsclassBox);
+    }
+    if (obj.contains("detectbuildings"))
+        detectBuildingsCheck->setChecked(obj["detectbuildings"].toBool());
 }

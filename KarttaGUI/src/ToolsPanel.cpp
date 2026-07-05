@@ -34,25 +34,49 @@ ToolsPanel::ToolsPanel(QWidget* parent)
     {
         auto* group = new QGroupBox("Iterative & Partial Processing", content);
         auto* groupLayout = new QVBoxLayout(group);
-        groupLayout->setSpacing(10);
+        groupLayout->setSpacing(8);
+
+        // Requirement notice
+        auto* note = new QLabel(
+            "<i>Vegetation and cliff regeneration require intermediate temp data "
+            "from the previous run.<br>"
+            "Enable <b>Save temp folders</b> in Settings before running the batch.</i>");
+        note->setWordWrap(true);
+        note->setTextFormat(Qt::RichText);
+        groupLayout->addWidget(note);
+
+        // Separator
+        auto* sep = new QFrame();
+        sep->setFrameShape(QFrame::HLine);
+        sep->setFrameShadow(QFrame::Sunken);
+        groupLayout->addWidget(sep);
 
         // Tool 1: Cosmetic Re-render
         auto* rerenderBtn = new QPushButton("Quick Re-render Map Images", group);
-        rerenderBtn->setToolTip("Re-runs the engine with no file arguments. Updates cosmetic choices (like north lines) instantly without parsing heavy point clouds again.");
+        rerenderBtn->setToolTip(
+            "Re-renders the PNG map images using the current settings without\n"
+            "reprocessing the point cloud. Useful for tweaking north lines,\n"
+            "contour appearance, and other cosmetic parameters.\n\n"
+            "Requires that the temp folder still contains data from the last run.");
         connect(rerenderBtn, &QPushButton::clicked, this, [this]() {
-            emit toolActionRequested(QStringList()); // Empty arguments triggers standard re-render
+            emit toolActionRequested(QStringList());
         });
         groupLayout->addWidget(rerenderBtn);
 
         // Tool 2: Make Vege
         auto* vegeBtn = new QPushButton("Regenerate Vegetation Layers Only", group);
-        vegeBtn->setToolTip("Re-calculates the green and yellow vegetation classifications using updated parameters.");
+        vegeBtn->setToolTip(
+            "Re-calculates green and yellow vegetation without reprocessing\n"
+            "the full point cloud. Useful for iterating undergrowth and\n"
+            "greenshade thresholds.\n\n"
+            "Requires: Save temp folders = ON in Settings before the batch run.\n"
+            "After this runs, press Quick Re-render to update the PNG output.");
         connect(vegeBtn, &QPushButton::clicked, this, [this]() {
             emit toolActionRequested(QStringList() << "makevege");
         });
         groupLayout->addWidget(vegeBtn);
 
-        // Tool 3: Make Cliffs (Requires inputs)
+        // Tool 3: Make Cliffs
         auto* cliffSubGroup = new QWidget(group);
         auto* cliffForm = new QFormLayout(cliffSubGroup);
         cliffForm->setContentsMargins(0, 5, 0, 0);
@@ -70,7 +94,12 @@ ToolsPanel::ToolsPanel(QWidget* parent)
         cliffForm->addRow("Cliff Steepness Factor:", cliffSteepBox);
 
         auto* cliffBtn = new QPushButton("Regenerate Cliffs Only", cliffSubGroup);
-        cliffBtn->setToolTip("Re-calculates cliffs from the intermediate data utilizing custom smoothing and steepness rules.");
+        cliffBtn->setToolTip(
+            "Re-calculates cliff features from intermediate point data\n"
+            "using the smoothing and steepness values above.\n\n"
+            "Requires: Save temp folders = ON in Settings before the batch run.\n"
+            "Command: pullauta makecliffs xyztemp.xyz <smooth> <steep>\n"
+            "After this runs, press Quick Re-render to update the PNG output.");
         connect(cliffBtn, &QPushButton::clicked, this, [this]() {
             QStringList args;
             args << "makecliffs" << "xyztemp.xyz"
@@ -90,9 +119,23 @@ ToolsPanel::ToolsPanel(QWidget* parent)
     {
         auto* group = new QGroupBox("Batch Output Tile Merging", content);
         auto* groupLayout = new QVBoxLayout(group);
-        groupLayout->setSpacing(10);
+        groupLayout->setSpacing(8);
 
-        // Shared Scale Multiplier Row
+        // Requirement notice
+        auto* note = new QLabel(
+            "<i>Merge tools combine per-tile output files into a single image.\n"
+            "PNG/DXF merge requires <b>Save temp files</b> to be enabled in Settings\n"
+            "before the batch run so per-tile files are copied to the output folder.</i>");
+        note->setWordWrap(true);
+        note->setTextFormat(Qt::RichText);
+        groupLayout->addWidget(note);
+
+        auto* sep = new QFrame();
+        sep->setFrameShape(QFrame::HLine);
+        sep->setFrameShadow(QFrame::Sunken);
+        groupLayout->addWidget(sep);
+
+        // Shared scale multiplier
         auto* scaleWidget = new QWidget(group);
         auto* scaleForm = new QFormLayout(scaleWidget);
         scaleForm->setContentsMargins(0, 0, 0, 5);
@@ -100,31 +143,58 @@ ToolsPanel::ToolsPanel(QWidget* parent)
         mergeScaleBox = new QSpinBox(scaleWidget);
         mergeScaleBox->setRange(1, 50);
         mergeScaleBox->setValue(1);
-        mergeScaleBox->setToolTip("1 = Full scale (Large files!). 2 = 50% size reduction. 4 = 25% size reduction.");
-        scaleForm->addRow("Downscale Factor (1 = Max Res):", mergeScaleBox);
+        mergeScaleBox->setToolTip(
+            "1 = full resolution (large files).\n"
+            "2 = 50% size,  4 = 25% size,  10 = 10% size.\n"
+            "Start with a higher value for a quick preview.");
+        scaleForm->addRow("Downscale factor (1 = max res):", mergeScaleBox);
         groupLayout->addWidget(scaleWidget);
 
-        // Merge Actions
+        // Merge Standard
         auto* mergeStdBtn = new QPushButton("Merge Standard Raster Maps", group);
+        mergeStdBtn->setToolTip(
+            "Stitches all per-tile PNG map files into a single output image.\n"
+            "Produces merged.png / merged.jpg + world files.\n"
+            "No extra setting required — tile PNGs are always in the output folder.");
         connect(mergeStdBtn, &QPushButton::clicked, this, [this]() {
-            emit toolActionRequested(QStringList() << "pngmerge" << QString::number(mergeScaleBox->value()));
+            emit toolActionRequested(QStringList() << "pngmerge"
+                                                   << QString::number(mergeScaleBox->value()));
         });
         groupLayout->addWidget(mergeStdBtn);
 
+        // Merge Depression
         auto* mergeDeprBtn = new QPushButton("Merge Depression Raster Maps", group);
+        mergeDeprBtn->setToolTip(
+            "Stitches the depression-variant PNG tiles into a single image.\n"
+            "Produces merged_depr.png / merged_depr.jpg + world files.\n"
+            "No extra setting required.");
         connect(mergeDeprBtn, &QPushButton::clicked, this, [this]() {
-            emit toolActionRequested(QStringList() << "pngmergedepr" << QString::number(mergeScaleBox->value()));
+            emit toolActionRequested(QStringList() << "pngmergedepr"
+                                                   << QString::number(mergeScaleBox->value()));
         });
         groupLayout->addWidget(mergeDeprBtn);
 
+        // Merge Vege — NOTE: no scale argument (not supported by pullauta)
         auto* mergeVegeBtn = new QPushButton("Merge Vegetation Backgrounds", group);
+        mergeVegeBtn->setToolTip(
+            "Stitches per-tile vegetation PNG backgrounds into one image.\n"
+            "Requires: Save temp files = ON in Settings before the batch run\n"
+            "so that _vege.png files are copied to the output folder.\n\n"
+            "Note: scale factor does not apply to this command.");
         connect(mergeVegeBtn, &QPushButton::clicked, this, [this]() {
-            emit toolActionRequested(QStringList() << "pngmergevege" << QString::number(mergeScaleBox->value()));
+            // pngmergevege takes no scale argument — passing one is ignored at best,
+            // may cause unexpected behaviour at worst.
+            emit toolActionRequested(QStringList() << "pngmergevege");
         });
         groupLayout->addWidget(mergeVegeBtn);
 
+        // Merge DXF
         auto* mergeDxfBtn = new QPushButton("Merge DXF Vector Outputs", group);
-        mergeDxfBtn->setToolTip("Combines all exported contour and cliff vector segments into unified DXF files.");
+        mergeDxfBtn->setToolTip(
+            "Combines per-tile DXF contour/cliff files into unified DXF outputs.\n"
+            "Requires two things to be enabled in Settings before the batch run:\n"
+            "  • DXF output = ON  (writes .dxf files during processing)\n"
+            "  • Save temp files = ON  (copies them to the output folder)");
         connect(mergeDxfBtn, &QPushButton::clicked, this, [this]() {
             emit toolActionRequested(QStringList() << "dxfmerge");
         });

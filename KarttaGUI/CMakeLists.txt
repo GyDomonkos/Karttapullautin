@@ -19,6 +19,7 @@ add_executable(KarttaGUI
     src/PreviewPanel.cpp
     src/SettingsPanel.cpp
     src/ToolsPanel.cpp
+    src/Presetmanager.cpp
     resources/resources.rc
 )
 

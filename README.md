@@ -1,152 +1,162 @@
 # KarttaGUI
 
-A Qt6 + OpenCV based graphical frontend for Karttapullautin.
+A Qt6-based graphical frontend for [Karttapullautin](https://github.com/karttapullautin/karttapullautin) — the LiDAR-to-orienteering-map processing engine.
 
-KarttaGUI provides a modern Windows desktop interface for running and managing Karttapullautin workflows using a MinGW-based toolchain.
+KarttaGUI wraps Karttapullautin's command-line workflow in a modern Windows desktop application, exposing its full configuration surface through a native UI and providing live map preview as tiles are generated.
 
-Copyright (c) 2026 Domonkos Gyorffy. All Rights Reserved.
+**Copyright (c) 2026 Domonkos Gyorffy. All Rights Reserved.**
 
 ---
 
-## Overview
+## What KarttaGUI does
 
-KarttaGUI is designed as a user-friendly GUI wrapper around Karttapullautin.
-It integrates:
+1. You select a folder of LAS/LAZ point cloud files and an output folder.
+2. KarttaGUI writes your settings to `pullauta.ini` and launches Karttapullautin.
+3. Generated map tiles appear in the preview panel in real time as each tile completes.
+4. Post-processing tools (tile merging, vegetation and cliff regeneration) are available once the batch finishes.
 
-* Qt6 (Widgets)
-* OpenCV (Optional/Planned for advanced image processing)
-* CMake build system
-* MinGW (GCC) toolchain
-
-The goal is to simplify map processing workflows, provide real-time visual feedback, and expose powerful configuration options.
+KarttaGUI never modifies the Karttapullautin binary. It is purely a configuration, execution, and visualisation layer.
 
 ---
 
 ## Features
 
-### User Interface & Layout
-* **Modern Split-Pane Layout:** Utilizes a resizable `QSplitter` interface to cleanly divide configuration controls and execution panels on the left from the live map preview area on the right.
-* **Live Map Preview System:** Actively monitors the processing output folder using `QFileSystemWatcher` to discover new map tiles in real time, instantly loading them into a dedicated thumbnail list.
-* **Optimized Image Viewer:** Implements an advanced thumbnail viewer via `QStackedWidget` that toggles smoothly from a placeholder view to an interactive, scale-aware image panel utilizing `QImageReader::setScaledSize()` for lightweight memory and rendering overhead.
+### Run tab
+- Folder picker for LAS/LAZ input and PNG output
+- Drag-and-drop: drop a folder or a single LAS/LAZ file directly onto the window
+- **Existing output detection:** if the output folder already contains tile PNGs, a dialog asks whether to clear them for a full reprocess or skip existing tiles
+- Run / Cancel buttons with a live tile-count progress bar (`X / N tiles`)
+- Open Output Folder button — opens the output directory in Explorer with one click
+- Full process log in a scrollable console
 
-### Engine Integration & Processing
-* **Asynchronous Process Runner:** Executes the Karttapullautin backend (`pullauta`) out-of-process using a customized `QProcess` wrapper. The desktop client remains perfectly responsive throughout heavy rendering jobs.
-* **Real-Time Log Parsing & Progress Tracking:** Tracks real-time stdout/stderr outputs to capture rendering patterns (e.g., counting `"All done!"` and `"exists already..."` outputs), driving an accurate `QProgressBar` with live feedback.
-* **Format-Preserving INI Parsing:** Features a bespoke `writeIniValues()` engine that applies configuration updates line-by-line, dynamically injecting new properties while seamlessly preserving user comments, spacing, and formatting.
-* **Dynamic Settings Panel:** Exposes comprehensive generation options (Contours, Vegetation, Cliffs, and Processing configurations) through a unified, native scroll area configuration grid.
+### Settings tab
+Full control over `pullauta.ini` parameters, organised into groups:
 
-### Build & Architecture
-* **Native Windows Support:** Tailored and validated specifically for Windows 10/11 platforms utilizing a modern MinGW (GCC) toolchain.
-* **Clean CMake Build System:** Standardized orchestration of compiler settings, standard library links, and deployment configurations.
-* **Modern, Modular C++ Archetype:** Built on modular architectural practices using C++17 paradigms for robust scope handling and asynchronous event handling.
-* **Extensible Image Pipeline:** Architected with structural hooks allowing seamless integration of OpenCV dependencies for future image processing workflows.
+| Group | Parameters |
+|---|---|
+| **Contours** | Interval, form line mode, smoothing, curviness, knoll sensitivity, index contour interval |
+| **Vegetation** | Undergrowth (slow run / walk), green ground, green high, yellow height/threshold, **variable green shade levels** (default: 0.8 \| 1.3 \| 2.0 for standard OMaps) |
+| **Cliffs** | Passable/impassable thresholds, steep factor, flat place threshold, minimum cliff length |
+| **Processing** | Parallel processes, north lines, scale factor, Z offset, DXF output, save temp files, save temp folders |
+| **Optional features** | Water class, water elevation threshold, buildings class, building detection |
+
+Settings are written to `pullauta.ini` on every run. Green shade thresholds are always written from the UI — the INI value is intentionally ignored to preserve your preferred defaults.
+
+#### Presets
+Save any combination of settings as a named preset and reload it at any time.
+- **Save As…** — prompts for a name, warns before overwriting
+- **Load** — applies all preset values to the form instantly
+- **Delete** — removes the preset file permanently
+
+Presets are stored as human-readable JSON in `%AppData%\KarttaGUI\presets\` and can be shared or backed up freely.
+
+### Preview panel
+- Thumbnail list of all generated PNG tiles, updated live as tiles finish
+- Full zoomable map view using `QGraphicsView`
+- **Physically calibrated zoom:** 100% = true 1:10,000 scale on your screen's actual DPI (Karttapullautin renders at 600 DPI for 1:10,000)
+- Preset zoom buttons: **Fit · 50% (1:20,000) · 100% (1:10,000) · 200% (1:5,000) · 400% (1:2,500)**
+- Mouse-wheel zoom and drag-to-pan
+
+### Tools tab
+Available after a batch run completes.
+
+**Iterative & Partial Processing**
+- Quick Re-render — re-renders PNG maps from existing temp data (useful after changing north lines or cosmetic settings)
+- Regenerate Vegetation Only — re-runs green/yellow classification with updated undergrowth parameters *(requires Save temp folders)*
+- Regenerate Cliffs Only — re-runs cliff detection with custom smoothing and steepness *(requires Save temp folders)*
+
+**Batch Tile Merging**
+- Merge Standard Maps — stitches all tile PNGs into `merged.png` / `merged.jpg`
+- Merge Depression Maps — same for the depression-variant tiles
+- Merge Vegetation Backgrounds — stitches `_vege.png` files *(requires Save temp files)*
+- Merge DXF Outputs — combines per-tile DXF vector files *(requires DXF output + Save temp files)*
+
+All merged files are automatically moved from the Karttapullautin working directory to your output folder.
 
 ---
 
-## Project Structure
+## Project structure
 
 ```
 Karttapullautin/
-│
-├── CMakeLists.txt
-├── KarttaGUI/
-│   ├── CMakeLists.txt
-│   ├── src/
-│   │   ├── main.cpp
-│   │   ├── MainWindow.cpp / .h      # Main UI layout, INI parsing, and execution glue
-│   │   ├── KarttaRunner.cpp / .h    # QProcess wrapper for asynchronous execution
-│   │   ├── PreviewPanel.cpp / .h    # QFileSystemWatcher and QStackedWidget image viewer
-│   │   └── SettingsPanel.cpp / .h   # QScrollArea UI for pullauta.ini configuration
-│   └── resources/
-│
-└── build-mingw/
+├── CMakeLists.txt                  (root, adds KarttaGUI subdirectory)
+└── KarttaGUI/
+    ├── CMakeLists.txt
+    ├── src/
+    │   ├── main.cpp
+    │   ├── MainWindow.cpp / .h     — layout, INI writing, run/cancel logic
+    │   ├── KarttaRunner.cpp / .h   — QProcess wrapper
+    │   ├── PreviewPanel.cpp / .h   — live tile viewer (QGraphicsView + QFileSystemWatcher)
+    │   ├── SettingsPanel.cpp / .h  — settings form with preset bar
+    │   ├── PresetManager.cpp / .h  — JSON preset read/write (AppData storage)
+    │   └── ToolsPanel.cpp / .h     — post-processing tool buttons
+    └── resources/
+        ├── icon.png
+        └── resources.rc
 ```
+
+The `karttapullautin/` folder (containing the `pullauta` executable and `pullauta.ini`) must sit alongside `KarttaGUI.exe` in the deployment directory.
 
 ---
 
 ## Requirements
 
-* Windows 10 or 11
-* CMake ≥ 3.16
-* Qt 6.x (MinGW version)
-* OpenCV built with MinGW
-* MinGW matching the Qt toolchain
+| Component | Notes |
+|---|---|
+| Windows 10 or 11 | Primary supported platform |
+| CMake ≥ 3.16 | |
+| Qt 6.x (MinGW version) | e.g. `C:\Qt\6.10.2\mingw_64` |
+| MinGW toolchain | Must match the Qt build |
+| OpenCV | Optional — currently unused; hooks in place for future features |
 
-Example installation paths:
-
-```
-C:\Qt\6.10.2\mingw_64
-C:\opencv\build\x64\mingw\install
-```
-
-Important: Qt and OpenCV must be built with the same compiler (MinGW).
+Qt and OpenCV (if used) must be built with the same MinGW compiler version.
 
 ---
 
-## Build Instructions (Windows + MinGW)
-
-### 1. Create build directory
+## Build instructions (Windows + MinGW)
 
 ```powershell
+# 1. Create build directory
 mkdir build-mingw
 cd build-mingw
-```
 
-### 2. Configure
+# 2. Configure
+cmake .. -G "MinGW Makefiles" `
+  -DCMAKE_PREFIX_PATH=C:/Qt/6.10.2/mingw_64 `
+  -DOpenCV_DIR=C:/opencv/build/x64/mingw/install
 
-```powershell
-cmake .. -G "MinGW Makefiles" ^
- -DCMAKE_PREFIX_PATH=C:/Qt/6.10.2/mingw_64 ^
- -DOpenCV_DIR=C:/opencv/build/x64/mingw/install
-```
-
-### 3. Build
-
-```powershell
+# 3. Build
 cmake --build . -j8
 ```
 
-The executable will be generated inside:
-
-```
-build-mingw/
-```
+The executable is written to `build-mingw/KarttaGUI/`.
 
 ---
 
 ## Deployment (Windows)
 
-After building, deploy Qt runtime dependencies:
-
 ```powershell
+# Deploy Qt runtime DLLs
 C:\Qt\6.10.2\mingw_64\bin\windeployqt.exe KarttaGUI.exe
+
+# Copy Karttapullautin next to the executable
+# The folder must be named exactly "karttapullautin" and contain
+# pullauta.exe and pullauta.ini
 ```
 
-This copies required Qt DLLs and plugin folders.
-
-You must also copy OpenCV runtime DLLs from:
-
-```
-C:\opencv\build\x64\mingw\install\x64\mingw\bin
-```
-
-into the same directory as `KarttaGUI.exe`.
+If DLL errors occur at runtime, verify that Qt and any other dependencies were built with the same MinGW version.
 
 ---
 
-## Running the Application
+## Printing at correct scale
 
-After deployment:
+Karttapullautin outputs PNGs at **600 DPI** for **1:10,000** scale. To print at the correct physical scale:
 
-```
-KarttaGUI.exe
-```
+1. Open the PNG in IrfanView
+2. Image → Information → set resolution to **600 × 600 DPI** → Change → Save
+3. Print using **"Original Size from DPI"**
 
-If DLL errors occur, verify:
-
-* Qt and OpenCV were built with MinGW
-* All required DLLs are in the executable directory
-* No MSVC builds are mixed with MinGW
+KarttaGUI's preview panel reflects this: the **100% zoom level** corresponds to the true 1:10,000 physical scale on your monitor.
 
 ---
 
@@ -156,20 +166,12 @@ If DLL errors occur, verify:
 
 This project is **Source-Available**, not Open Source.
 
-* **Use & Compilation:** You are free to compile and use this software for private, non-commercial purposes.
-* **Redistribution:** You may not redistribute, modify, or sell this software or its source code without explicit written permission.
-* **Qt Attribution:** This software utilizes the Qt framework, which is licensed under the GNU Lesser General Public License (LGPL). The relevant license files are included in the software distribution.
-
-
----
-
-## Contributing
-
-Contributions are welcome. 
-By submitting a contribution, you agree that your changes become part of this project and are subject to the same copyright and license terms as the rest of the codebase.
+- **Use & compilation:** You may compile and use this software for private, non-commercial purposes.
+- **Redistribution:** You may not redistribute, modify, or sell this software or its source code without explicit written permission from the author.
+- **Qt attribution:** This software uses the Qt framework under the LGPL. Relevant license files are included in the distribution.
 
 ---
 
 ## Disclaimer
 
-This project is provided without warranty of any kind. Use at your own risk.
+This software is provided without warranty of any kind. Use at your own risk.
