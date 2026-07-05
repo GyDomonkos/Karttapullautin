@@ -9,10 +9,13 @@ set(CMAKE_AUTOUIC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
-# OpenCV is optional for now — required once image processing features land
+# OpenCV is optional — required once image processing features land
 find_package(OpenCV QUIET)
 
-add_executable(KarttaGUI
+# ---------------------------------------------------------------------------
+# Sources — shared across all platforms
+# ---------------------------------------------------------------------------
+set(SOURCES
     src/main.cpp
     src/MainWindow.cpp
     src/KarttaRunner.cpp
@@ -20,16 +23,26 @@ add_executable(KarttaGUI
     src/SettingsPanel.cpp
     src/ToolsPanel.cpp
     src/Presetmanager.cpp
-    resources/resources.rc
 )
+
+# Windows resource file embeds the app icon and version info into the .exe.
+# It uses MSVC/MinGW windres syntax and must NOT be compiled on Linux/macOS.
+if(WIN32)
+    list(APPEND SOURCES resources/resources.rc)
+endif()
+
+add_executable(KarttaGUI ${SOURCES})
+
+# Suppress the console window on Windows (no effect on other platforms)
+if(WIN32)
+    set_target_properties(KarttaGUI PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()
 
 target_include_directories(KarttaGUI PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_link_libraries(KarttaGUI PRIVATE
-    Qt6::Widgets
-)
+target_link_libraries(KarttaGUI PRIVATE Qt6::Widgets)
 
 if(OpenCV_FOUND)
     target_link_libraries(KarttaGUI PRIVATE ${OpenCV_LIBS})
@@ -40,48 +53,66 @@ else()
 endif()
 
 
-
 # ==============================================================================
-# DEPLOYMENT AUTOMATION
+# DEPLOYMENT
 # ==============================================================================
 
-# 1. Install the main executable
 install(TARGETS KarttaGUI RUNTIME DESTINATION bin)
 
-# 2. Copy the external karttapullautin folder (executable + ini)
-# Assumes 'karttapullautin' is in the project root (.. relative to KarttaGUI)
-# Get the absolute path to where CMake thinks the folder is
-get_filename_component(KARTTA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../karttapullautin" ABSOLUTE)
+# ---------------------------------------------------------------------------
+# Bundle the karttapullautin folder (pullauta binary + pullauta.ini).
+# Both pullauta.exe (Windows) and pullauta (Linux) can coexist in this
+# folder — MainWindow.cpp picks the right one at runtime via #ifdef Q_OS_WIN.
+#
+# USE_SOURCE_PERMISSIONS is critical on Linux: it preserves the execute bit
+# on the pullauta binary so it can actually be launched as a subprocess.
+# ---------------------------------------------------------------------------
+get_filename_component(KARTTA_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/../karttapullautin" ABSOLUTE)
 
-# Print it to the console during generation so you can verify it
 message(STATUS "Looking for karttapullautin folder at: ${KARTTA_DIR}")
 
-# Copy it (if it exists)
 if(EXISTS "${KARTTA_DIR}")
-    install(DIRECTORY "${KARTTA_DIR}" DESTINATION bin)
-    message(STATUS "SUCCESS: Will copy karttapullautin folder!")
+    install(DIRECTORY "${KARTTA_DIR}"
+            DESTINATION bin
+            USE_SOURCE_PERMISSIONS)
+    message(STATUS "SUCCESS: Will bundle karttapullautin folder")
 else()
-    message(WARNING "ERROR: Could not find karttapullautin folder at ${KARTTA_DIR} - please check the path!")
+    message(WARNING "karttapullautin folder not found at ${KARTTA_DIR}")
 endif()
 
-# 3. Copy OpenCV DLLs automatically
-# We look for the DLLs relative to where CMake found OpenCV
-if(OpenCV_FOUND)
-    # Try to find the bin directory based on the include directory
-    get_filename_component(OPENCV_ROOT "${OpenCV_DIR}/../../.." ABSOLUTE)
-    install(DIRECTORY "${OPENCV_ROOT}/bin/" 
-            DESTINATION bin 
-            FILES_MATCHING PATTERN "*.dll")
+
+# ---------------------------------------------------------------------------
+# Windows-only: copy Qt + OpenCV runtime DLLs, then run windeployqt
+# ---------------------------------------------------------------------------
+if(WIN32)
+    if(OpenCV_FOUND)
+        get_filename_component(OPENCV_ROOT "${OpenCV_DIR}/../../.." ABSOLUTE)
+        install(DIRECTORY "${OPENCV_ROOT}/bin/"
+                DESTINATION bin
+                FILES_MATCHING PATTERN "*.dll")
+    endif()
+
+    set(QT_BIN_DIR "${CMAKE_PREFIX_PATH}/bin")
+    install(CODE "
+        message(STATUS \"Running windeployqt to collect Qt dependencies...\")
+        execute_process(
+            COMMAND \"${QT_BIN_DIR}/windeployqt.exe\"
+                    \"\${CMAKE_INSTALL_PREFIX}/bin/KarttaGUI.exe\"
+            WORKING_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/bin\"
+        )
+    ")
 endif()
 
-# 4. Automate windeployqt (Post-Install step)
-# Note: Ensure CMAKE_PREFIX_PATH is set (as in your build.sh)
-set(QT_BIN_DIR "${CMAKE_PREFIX_PATH}/bin") 
 
-install(CODE "
-    message(STATUS \"Running windeployqt to collect Qt dependencies...\")
-    execute_process(
-        COMMAND \"${QT_BIN_DIR}/windeployqt.exe\" \"\${CMAKE_INSTALL_PREFIX}/bin/KarttaGUI.exe\"
-        WORKING_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/bin\"
-    )
-")
+# ---------------------------------------------------------------------------
+# Linux-only: install desktop entry + icon for system-wide installs and
+# for AppImage packaging (linuxdeploy picks them up from usr/share/).
+# ---------------------------------------------------------------------------
+if(UNIX AND NOT APPLE)
+    install(FILES     resources/KarttaGUI.desktop
+            DESTINATION share/applications)
+    install(FILES     resources/icon.png
+            DESTINATION share/icons/hicolor/256x256/apps
+            RENAME      KarttaGUI.png)
+endif()
