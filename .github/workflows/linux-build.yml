@@ -109,10 +109,10 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Create AppImage
         env:
-          ARCH: x86_64        # required by appimagetool — must match the runner
           QMAKE: /usr/bin/qmake6
           QT_QPA_PLATFORM_PLUGIN_PATH: /usr/lib/x86_64-linux-gnu/qt6/plugins/platforms
-          LDAI_OUTPUT: KarttaGUI-${{ github.ref_name }}-linux-x86_64.AppImage
+          OUTPUT: KarttaGUI-${{ github.ref_name }}-linux-x86_64.AppImage
+          ARCH: x86_64  # Add this line
         run: |
           ./linuxdeploy.AppImage \
             --appdir AppDir \
