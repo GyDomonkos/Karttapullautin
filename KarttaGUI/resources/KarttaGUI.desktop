@@ -1,10 +1,9 @@
 [Desktop Entry]
 Name=KarttaGUI
-GenericName=Orienteering Map Processor
-Comment=GUI frontend for Karttapullautin LiDAR-to-orienteering-map processing
+Comment=Graphical frontend for Karttapullautin LiDAR map generation
 Exec=KarttaGUI
 Icon=KarttaGUI
 Type=Application
-Categories=Science;Education;
-Keywords=orienteering;lidar;map;karttapullautin;
+Categories=Graphics;Geography;
+Keywords=orienteering;map;LiDAR;LAS;LAZ;karttapullautin;
 StartupNotify=true
