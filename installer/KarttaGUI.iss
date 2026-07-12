@@ -27,7 +27,7 @@ LicenseFile=..\LGPL_License.txt
 ; This adds the text to the uninstaller/info menu
 InfoBeforeFile=..\LICENSE.txt
 ; This sets the icon for the setup wizard .exe itself
-SetupIconFile=..\AppDist\bin\resources\icon.ico
+SetupIconFile=..\KarttaGUI\resources\icon.ico
 ; This ensures the uninstaller icon matches in the Windows Control Panel
 UninstallDisplayIcon={app}\KarttaGUI.exe
 
