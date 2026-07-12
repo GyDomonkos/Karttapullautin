@@ -43,17 +43,25 @@ jobs:
           mkdir -p karttapullautin
 
           # Fetch the download URL of the Linux asset from the latest release
+          # Prefer x86_64 assets to avoid multi-arch mixes in AppDir
           ASSET_URL=$(curl -s https://api.github.com/repos/karttapullautin/karttapullautin/releases/latest \
             | grep browser_download_url \
             | grep -i linux \
+            | grep -i x86_64 \
             | head -1 \
             | cut -d '"' -f 4)
 
           if [ -z "$ASSET_URL" ]; then
-            echo "::warning::Could not auto-detect Linux asset URL."
-            echo "::warning::Set PULLAUTA_URL secret or hardcode the URL below."
+            echo "::warning::Could not auto-detect x86_64 Linux asset URL. Falling back to any Linux asset."
+            ASSET_URL=$(curl -s https://api.github.com/repos/karttapullautin/karttapullautin/releases/latest \
+              | grep browser_download_url \
+              | grep -i linux \
+              | head -1 \
+              | cut -d '"' -f 4)
             # Fallback: use the URL from the project secret if set
-            ASSET_URL="${{ secrets.PULLAUTA_LINUX_URL }}"
+            if [ -z "$ASSET_URL" ]; then
+              ASSET_URL="${{ secrets.PULLAUTA_LINUX_URL }}"
+            fi
           fi
 
           echo "Downloading pullauta from: $ASSET_URL"
@@ -66,8 +74,18 @@ jobs:
             mv pullauta_linux karttapullautin/pullauta
           fi
 
-          chmod +x karttapullautin/pullauta
+          chmod +x karttapullautin/pullauta || true
           ls -la karttapullautin/
+
+          # Verify the downloaded binary's architecture to avoid mixing arches
+          if [ -f karttapullautin/pullauta ]; then
+            file_out=$(file -b karttapullautin/pullauta || true)
+            echo "Downloaded pullauta: $file_out"
+            if ! echo "$file_out" | grep -Ei 'x86-64|x86_64|64-bit' >/dev/null; then
+              echo "::error::Downloaded pullauta is not x86_64; set PULLAUTA_LINUX_URL to the correct asset."
+              exit 1
+            fi
+          fi
 
       # -----------------------------------------------------------------------
       - name: Configure
@@ -86,17 +104,9 @@ jobs:
         run: cmake --install build
 
       # -----------------------------------------------------------------------
-      # appimagetool scans every binary in AppDir to determine architecture.
-      # The karttapullautin/ folder contains pullauta.exe (Windows PE32) which
-      # makes appimagetool think multiple architectures are present and abort.
-      # Remove all Windows executables — they are not needed in the AppImage.
-      # -----------------------------------------------------------------------
-      - name: Remove Windows binaries from AppDir
-        run: find AppDir -name "*.exe" -delete
-
-      # -----------------------------------------------------------------------
-      # linuxdeploy bundles Qt libraries and platform plugins so KarttaGUI
-      # runs on machines that don't have Qt installed.
+      # linuxdeploy bundles the Qt libraries and platform plugins needed to
+      # run KarttaGUI on machines that don't have Qt installed.
+      # The Qt plugin handles Qt-specific dependencies automatically.
       # -----------------------------------------------------------------------
       - name: Download linuxdeploy + Qt plugin
         run: |
@@ -110,9 +120,10 @@ jobs:
       - name: Create AppImage
         env:
           QMAKE: /usr/bin/qmake6
+          # Tell the Qt plugin where to find Qt's platform plugins
           QT_QPA_PLATFORM_PLUGIN_PATH: /usr/lib/x86_64-linux-gnu/qt6/plugins/platforms
           OUTPUT: KarttaGUI-${{ github.ref_name }}-linux-x86_64.AppImage
-          ARCH: x86_64  # Add this line
+          ARCH: x86_64
         run: |
           ./linuxdeploy.AppImage \
             --appdir AppDir \
