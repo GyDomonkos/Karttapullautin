@@ -98,9 +98,16 @@ jobs:
       - name: Configure
         shell: bash
         run: |
+          # QT_ROOT_DIR comes from install-qt-action as a Windows-style path
+          # (backslashes). CMake embeds CMAKE_PREFIX_PATH literally into the
+          # generated cmake_install.cmake, where backslashes are escape
+          # characters — "\a" etc. breaks parsing. Normalize to forward
+          # slashes first.
+          QT_ROOT_DIR_UNIX="${QT_ROOT_DIR//\\//}"
+
           cmake -B build -S KarttaGUI \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="${QT_ROOT_DIR}" \
+            -DCMAKE_PREFIX_PATH="${QT_ROOT_DIR_UNIX}" \
             -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/AppDist" \
             -G Ninja
 
