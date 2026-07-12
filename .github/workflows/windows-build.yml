@@ -100,7 +100,7 @@ jobs:
         run: |
           cmake -B build -S KarttaGUI \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="${Qt6_DIR}" \
+            -DCMAKE_PREFIX_PATH="${QT_ROOT_DIR}" \
             -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/AppDist" \
             -G Ninja
 
@@ -120,6 +120,15 @@ jobs:
           echo "AppDist/bin contents:"
           find AppDist -maxdepth 2 || true
 
+      - name: Verify Qt DLLs were deployed
+        shell: bash
+        run: |
+          if ! ls AppDist/bin/Qt6Core.dll >/dev/null 2>&1; then
+            echo "::error::Qt6Core.dll not found in AppDist/bin — windeployqt did not run correctly."
+            exit 1
+          fi
+          echo "Qt DLLs found."
+
       # -----------------------------------------------------------------------
       - name: Determine version from tag
         id: version
@@ -132,16 +141,22 @@ jobs:
       # -----------------------------------------------------------------------
       # LGPL_License.txt (the Qt LGPL attribution text) and LICENSE.txt (your
       # own project license) are expected at the repo root by installer/KarttaGUI.iss.
-      # If you already keep these committed in your repo, this step is skipped.
-      - name: Ensure license files exist
+      # Both must be committed to the repo — fetching LGPL_License.txt from
+      # gnu.org at build time turned out to be unreliable (CI network flakiness),
+      # so it's committed alongside LICENSE.txt instead.
+      - name: Check required license files
         shell: bash
         run: |
+          MISSING=0
           if [ ! -f LGPL_License.txt ]; then
-            echo "LGPL_License.txt not found in repo — downloading official LGPL v3 text."
-            curl -L -o LGPL_License.txt https://www.gnu.org/licenses/lgpl-3.0.txt
+            echo "::error::LGPL_License.txt not found in repo root. Add it (see the file provided alongside this workflow) and commit it."
+            MISSING=1
           fi
           if [ ! -f LICENSE.txt ]; then
-            echo "::error::LICENSE.txt not found in repo root. This is your own project license and can't be auto-downloaded — please commit it."
+            echo "::error::LICENSE.txt not found in repo root. This is your own project license — please commit it."
+            MISSING=1
+          fi
+          if [ "$MISSING" = "1" ]; then
             exit 1
           fi
 
