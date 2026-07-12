@@ -30,6 +30,7 @@ private slots:
     void browseInput();
     void browseOutput();
     void openOutputFolder();
+    void showAbout();
     void startKarttapullautin();
     void cancelKarttapullautin();
     void handleOutput(const QString& text);

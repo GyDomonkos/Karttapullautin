@@ -26,6 +26,7 @@
 #include <QMimeData>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QMenuBar>
 #include <QMessageBox>
 
 
@@ -270,55 +271,6 @@ void MainWindow::startKarttapullautin()
         return;
     }
 
-    // ---- Check for existing tile PNGs in the output folder ----------------
-    // Karttapullautin skips any tile whose PNG already exists in the output
-    // folder. If PNGs are present, ask the user what to do before proceeding.
-    {
-        const QStringList existingPngs =
-            QDir(outputPath).entryList({ "*.png", "*.PNG" }, QDir::Files);
-
-        if (!existingPngs.isEmpty())
-        {
-            QMessageBox msgBox(this);
-            msgBox.setWindowTitle("Output Folder Contains Existing Maps");
-            msgBox.setText(
-                QString("%1 PNG file(s) already exist in the output folder.\n"
-                        "Karttapullautin skips any tile whose PNG is already present, "
-                        "so existing tiles will not be reprocessed unless you clear them first.")
-                    .arg(existingPngs.count()));
-            msgBox.setInformativeText("What would you like to do?");
-
-            QPushButton* clearBtn  = msgBox.addButton("Clear and Reprocess All",
-                                                       QMessageBox::AcceptRole);
-            QPushButton* skipBtn   = msgBox.addButton("Keep Existing, Skip Those Tiles",
-                                                       QMessageBox::NoRole);
-            QPushButton* cancelBtn = msgBox.addButton("Cancel",
-                                                       QMessageBox::RejectRole);
-            Q_UNUSED(skipBtn);
-            msgBox.setDefaultButton(clearBtn);
-            msgBox.exec();
-
-            if (msgBox.clickedButton() == cancelBtn)
-                return;
-
-            if (msgBox.clickedButton() == clearBtn)
-            {
-                int deleted = 0, failed = 0;
-                for (const QString& fn : existingPngs)
-                {
-                    QFile::remove(QDir(outputPath).absoluteFilePath(fn))
-                        ? ++deleted : ++failed;
-                }
-                outputText->append(
-                    QString("Cleared %1 PNG(s) from output folder.%2")
-                        .arg(deleted)
-                        .arg(failed > 0
-                             ? QString(" (%1 could not be deleted.)").arg(failed)
-                             : QString()));
-            }
-        }
-    }
-
     const QStringList lazFilters = { "*.las", "*.laz", "*.LAS", "*.LAZ" };
     totalTiles     = QDir(inputFolder).entryList(lazFilters, QDir::Files).count();
     completedTiles = 0;
@@ -404,18 +356,17 @@ void MainWindow::handleFinished(int exitCode)
     runButton->setEnabled(true);
     cancelButton->setEnabled(false);
     progressBar->setVisible(false);
-    progressBar->setFormat("%v / %m tiles");   // restore format after tool runs
 
     if (exitCode == 0) {
         if (!isToolRun) {
-            tabWidget->setTabEnabled(2, true);
+            // It was a batch run. Unlock the tools!
+            tabWidget->setTabEnabled(2, true); 
             outputText->append("\nPost-processing tools are now available in the 'Tools' tab.");
         } else {
+            // It was a tool run. Sweep the directory for merged files!
             moveMergedFilesToOutput();
         }
     }
-
-    isToolRun = false;   // always reset — was never cleared before
 }
 
 // ==========================================================================
@@ -515,12 +466,6 @@ void MainWindow::runToolCommand(const QStringList& args)
     isToolRun = true;
     outputText->append(QString("\nExecuting tool command: pullauta %1").arg(args.join(" ")));
 
-    // Show an indeterminate progress bar while the tool runs
-    progressBar->setMinimum(0);
-    progressBar->setMaximum(0);   // 0 = animated indeterminate spinner
-    progressBar->setFormat("Running tool…");
-    progressBar->setVisible(true);
-
     QString iniPath = QCoreApplication::applicationDirPath() + "/karttapullautin/pullauta.ini";
     writeIniValues(iniPath, settingsPanel->values(), settingsPanel->disabledOptionalKeys());
 
@@ -568,4 +513,30 @@ void MainWindow::moveMergedFilesToOutput()
     if (movedAny) {
         outputText->append("All merged files have been safely moved to your Output Folder.");
     }
+}
+
+// ==========================================================================
+// Slot: showAbout
+// ==========================================================================
+void MainWindow::showAbout()
+{
+    // APP_VERSION is injected by CMake via target_compile_definitions so it
+    // always matches the version declared in CMakeLists.txt — no duplication.
+#ifndef APP_VERSION
+#define APP_VERSION "unknown"
+#endif
+
+    QMessageBox::about(this,
+        "About KarttaGUI",
+        "<h3>KarttaGUI v" APP_VERSION "</h3>"
+        "<p>A graphical frontend for "
+        "<a href='https://github.com/karttapullautin/karttapullautin'>Karttapullautin</a> "
+        "— the LiDAR-to-orienteering-map processing engine.</p>"
+        "<p>Built with Qt " QT_VERSION_STR " (MinGW, C++17)</p>"
+        "<hr>"
+        "<p style='font-size:small;color:gray;'>"
+        "Copyright &copy; 2026 Domonkos Gyorffy. All Rights Reserved.<br>"
+        "Source-available — not open source. See LICENSE for details."
+        "</p>"
+    );
 }

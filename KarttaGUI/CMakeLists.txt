@@ -1,19 +1,23 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(KarttaGUI)
+project(KarttaGUI VERSION 1.0.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+# Qt6::Core is listed explicitly because PresetManager uses QJsonDocument,
+# QStandardPaths, and QRegularExpression — all in Core, not Widgets.
+find_package(Qt6 REQUIRED COMPONENTS Widgets Core)
 
 # OpenCV is optional — required once image processing features land
 find_package(OpenCV QUIET)
 
 # ---------------------------------------------------------------------------
 # Sources — shared across all platforms
+# NOTE: filenames are case-sensitive on Linux. PresetManager.cpp must match
+# the actual file on disk exactly (capital P, capital M).
 # ---------------------------------------------------------------------------
 set(SOURCES
     src/main.cpp
@@ -22,11 +26,10 @@ set(SOURCES
     src/PreviewPanel.cpp
     src/SettingsPanel.cpp
     src/ToolsPanel.cpp
-    src/Presetmanager.cpp
+    src/PresetManager.cpp
 )
 
 # Windows resource file embeds the app icon and version info into the .exe.
-# It uses MSVC/MinGW windres syntax and must NOT be compiled on Linux/macOS.
 if(WIN32)
     list(APPEND SOURCES resources/resources.rc)
 endif()
@@ -38,11 +41,20 @@ if(WIN32)
     set_target_properties(KarttaGUI PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
 
+# Expose the CMake project version to C++ so the About dialog stays in sync
+# with the version declared at the top of this file — no duplication needed.
+target_compile_definitions(KarttaGUI PRIVATE
+    APP_VERSION="${PROJECT_VERSION}"
+)
+
 target_include_directories(KarttaGUI PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-target_link_libraries(KarttaGUI PRIVATE Qt6::Widgets)
+target_link_libraries(KarttaGUI PRIVATE
+    Qt6::Widgets
+    Qt6::Core
+)
 
 if(OpenCV_FOUND)
     target_link_libraries(KarttaGUI PRIVATE ${OpenCV_LIBS})
@@ -61,11 +73,9 @@ install(TARGETS KarttaGUI RUNTIME DESTINATION bin)
 
 # ---------------------------------------------------------------------------
 # Bundle the karttapullautin folder (pullauta binary + pullauta.ini).
-# Both pullauta.exe (Windows) and pullauta (Linux) can coexist in this
-# folder — MainWindow.cpp picks the right one at runtime via #ifdef Q_OS_WIN.
-#
-# USE_SOURCE_PERMISSIONS is critical on Linux: it preserves the execute bit
-# on the pullauta binary so it can actually be launched as a subprocess.
+# Both pullauta.exe (Windows) and pullauta (Linux) can coexist here —
+# MainWindow.cpp picks the right one at runtime via #ifdef Q_OS_WIN.
+# USE_SOURCE_PERMISSIONS preserves the execute bit on Linux.
 # ---------------------------------------------------------------------------
 get_filename_component(KARTTA_DIR
     "${CMAKE_CURRENT_SOURCE_DIR}/../karttapullautin" ABSOLUTE)
@@ -83,7 +93,7 @@ endif()
 
 
 # ---------------------------------------------------------------------------
-# Windows-only: copy Qt + OpenCV runtime DLLs, then run windeployqt
+# Windows: copy Qt + OpenCV DLLs, then run windeployqt
 # ---------------------------------------------------------------------------
 if(WIN32)
     if(OpenCV_FOUND)
@@ -106,8 +116,8 @@ endif()
 
 
 # ---------------------------------------------------------------------------
-# Linux-only: install desktop entry + icon for system-wide installs and
-# for AppImage packaging (linuxdeploy picks them up from usr/share/).
+# Linux: install desktop entry + icon for system installs and AppImage
+# (linuxdeploy picks these up from usr/share/ automatically)
 # ---------------------------------------------------------------------------
 if(UNIX AND NOT APPLE)
     install(FILES     resources/KarttaGUI.desktop
