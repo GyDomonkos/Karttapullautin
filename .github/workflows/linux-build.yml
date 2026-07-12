@@ -1,0 +1,133 @@
+name: Linux Build
+
+# Runs automatically when you push a version tag (e.g. git tag v1.0.0 && git push --tags).
+# Can also be triggered manually from the GitHub Actions tab.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-22.04   # Ubuntu 22.04 gives a glibc version (2.35) that
+                             # runs on most modern Linux distributions.
+
+    steps:
+      # -----------------------------------------------------------------------
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      - name: Install Qt6 and build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build \
+            qt6-base-dev qt6-base-private-dev \
+            libgl-dev \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 \
+            libfuse2   # needed to run AppImage tools
+
+      # -----------------------------------------------------------------------
+      # Download the Linux pullauta binary from the latest Karttapullautin
+      # release and place it in the karttapullautin/ subfolder expected by the
+      # CMake install step. The pullauta.ini in your repo's karttapullautin/
+      # folder is included automatically.
+      #
+      # Adjust the asset name below if the release naming changes.
+      # Check: https://github.com/karttapullautin/karttapullautin/releases
+      # -----------------------------------------------------------------------
+      - name: Download pullauta Linux binary
+        run: |
+          mkdir -p karttapullautin
+
+          # Fetch the download URL of the Linux asset from the latest release
+          ASSET_URL=$(curl -s https://api.github.com/repos/karttapullautin/karttapullautin/releases/latest \
+            | grep browser_download_url \
+            | grep -i linux \
+            | head -1 \
+            | cut -d '"' -f 4)
+
+          if [ -z "$ASSET_URL" ]; then
+            echo "::warning::Could not auto-detect Linux asset URL."
+            echo "::warning::Set PULLAUTA_URL secret or hardcode the URL below."
+            # Fallback: use the URL from the project secret if set
+            ASSET_URL="${{ secrets.PULLAUTA_LINUX_URL }}"
+          fi
+
+          echo "Downloading pullauta from: $ASSET_URL"
+          curl -L "$ASSET_URL" -o pullauta_linux
+
+          # Handle both plain binaries and .tar.gz archives
+          if file pullauta_linux | grep -q "gzip"; then
+            tar -xzf pullauta_linux -C karttapullautin/
+          else
+            mv pullauta_linux karttapullautin/pullauta
+          fi
+
+          chmod +x karttapullautin/pullauta
+          ls -la karttapullautin/
+
+      # -----------------------------------------------------------------------
+      - name: Configure
+        run: |
+          cmake -B build -S KarttaGUI \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/AppDir/usr" \
+            -G Ninja
+
+      # -----------------------------------------------------------------------
+      - name: Build
+        run: cmake --build build --parallel
+
+      # -----------------------------------------------------------------------
+      - name: Install into AppDir
+        run: cmake --install build
+
+      # -----------------------------------------------------------------------
+      # linuxdeploy bundles the Qt libraries and platform plugins needed to
+      # run KarttaGUI on machines that don't have Qt installed.
+      # The Qt plugin handles Qt-specific dependencies automatically.
+      # -----------------------------------------------------------------------
+      - name: Download linuxdeploy + Qt plugin
+        run: |
+          curl -Lo linuxdeploy.AppImage \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          curl -Lo linuxdeploy-plugin-qt.AppImage \
+            https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy.AppImage linuxdeploy-plugin-qt.AppImage
+
+      # -----------------------------------------------------------------------
+      - name: Create AppImage
+        env:
+          QMAKE: /usr/bin/qmake6
+          # Tell the Qt plugin where to find Qt's platform plugins
+          QT_QPA_PLATFORM_PLUGIN_PATH: /usr/lib/x86_64-linux-gnu/qt6/plugins/platforms
+          OUTPUT: KarttaGUI-${{ github.ref_name }}-linux-x86_64.AppImage
+        run: |
+          ./linuxdeploy.AppImage \
+            --appdir AppDir \
+            --plugin qt \
+            --output appimage
+
+      # -----------------------------------------------------------------------
+      - name: Upload AppImage as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KarttaGUI-linux
+          path: KarttaGUI-*-linux-x86_64.AppImage
+
+      # -----------------------------------------------------------------------
+      # If this run was triggered by a version tag, attach the AppImage to the
+      # GitHub Release automatically. Create the release on GitHub first, or
+      # use the "Create release" step below to do it in one go.
+      # -----------------------------------------------------------------------
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: KarttaGUI-*-linux-x86_64.AppImage
+          # Set to false if you want to create the release manually first
+          draft: false
+          prerelease: false
