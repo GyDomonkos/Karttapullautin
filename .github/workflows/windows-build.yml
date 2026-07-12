@@ -55,23 +55,41 @@ jobs:
 
           ASSET_URL=$(curl -s https://api.github.com/repos/karttapullautin/karttapullautin/releases/latest \
             | grep browser_download_url \
-            | grep -i -E "win|\.exe" \
+            | grep -i "win" \
+            | grep -i -E "x86_64|x64|amd64" \
             | head -1 \
             | cut -d '"' -f 4)
 
           if [ -z "$ASSET_URL" ]; then
-            echo "::warning::Could not auto-detect Windows asset URL."
+            echo "::warning::Could not auto-detect Windows x86_64 asset URL."
             echo "::warning::Set PULLAUTA_WINDOWS_URL secret or hardcode the URL below."
             ASSET_URL="${{ secrets.PULLAUTA_WINDOWS_URL }}"
           fi
 
           echo "Downloading pullauta from: $ASSET_URL"
-          curl -L --fail --output pullauta_windows "$ASSET_URL"
+          curl -L "$ASSET_URL" -o pullauta_windows
 
-          if file pullauta_windows | grep -qi "zip"; then
+          FILETYPE=$(file -b pullauta_windows)
+          echo "Detected file type: $FILETYPE"
+
+          if echo "$FILETYPE" | grep -qi "gzip"; then
+            tar -xzf pullauta_windows -C karttapullautin/
+          elif echo "$FILETYPE" | grep -qi "zip"; then
             unzip -o pullauta_windows -d karttapullautin/
           else
             mv pullauta_windows karttapullautin/pullauta.exe
+          fi
+
+          # The archive may extract pullauta.exe into a nested subfolder
+          # rather than flat into karttapullautin/. Find it and move it up.
+          FOUND_EXE=$(find karttapullautin -iname "pullauta.exe" | head -1)
+          if [ -n "$FOUND_EXE" ] && [ "$FOUND_EXE" != "karttapullautin/pullauta.exe" ]; then
+            mv "$FOUND_EXE" karttapullautin/pullauta.exe
+          fi
+
+          if [ ! -f karttapullautin/pullauta.exe ]; then
+            echo "::error::pullauta.exe not found after extraction."
+            exit 1
           fi
 
           ls -la karttapullautin/
