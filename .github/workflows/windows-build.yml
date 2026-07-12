@@ -1,0 +1,137 @@
+name: Windows Build
+
+# Runs automatically when you push a version tag (e.g. git tag v1.0.0 && git push --tags).
+# Can also be triggered manually from the GitHub Actions tab.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      # -----------------------------------------------------------------------
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # NOTE on toolchain: your local setup uses MinGW (per the README), but
+      # CI uses MSVC instead. Matching a MinGW build exactly in CI means also
+      # installing a specific mingw tool version via aqtinstall, which is
+      # fragile across Qt releases. windows-latest ships MSVC out of the box,
+      # so this is far more reliable for automated builds. The resulting
+      # KarttaGUI.exe works the same either way — only the compiler differs.
+      # If you'd rather CI match your MinGW setup exactly, this step and the
+      # Qt install step below are the two things to swap out.
+      - name: Set up MSVC dev environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@master
+
+      - name: Install Qt6 (MSVC)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          arch: 'win64_msvc2019_64'
+          modules: ''
+
+      # -----------------------------------------------------------------------
+      # Download the Windows pullauta binary from the latest Karttapullautin
+      # release and place it in the karttapullautin/ subfolder expected by the
+      # CMake install step. The pullauta.ini in your repo's karttapullautin/
+      # folder is included automatically.
+      #
+      # Adjust the asset name below if the release naming changes.
+      # Check: https://github.com/karttapullautin/karttapullautin/releases
+      # -----------------------------------------------------------------------
+      - name: Download pullauta Windows binary
+        shell: bash
+        run: |
+          mkdir -p karttapullautin
+
+          ASSET_URL=$(curl -s https://api.github.com/repos/karttapullautin/karttapullautin/releases/latest \
+            | grep browser_download_url \
+            | grep -i -E "win|\.exe" \
+            | head -1 \
+            | cut -d '"' -f 4)
+
+          if [ -z "$ASSET_URL" ]; then
+            echo "::warning::Could not auto-detect Windows asset URL."
+            echo "::warning::Set PULLAUTA_WINDOWS_URL secret or hardcode the URL below."
+            ASSET_URL="${{ secrets.PULLAUTA_WINDOWS_URL }}"
+          fi
+
+          echo "Downloading pullauta from: $ASSET_URL"
+          curl -L "$ASSET_URL" -o pullauta_windows
+
+          if file pullauta_windows | grep -qi "zip"; then
+            unzip -o pullauta_windows -d karttapullautin/
+          else
+            mv pullauta_windows karttapullautin/pullauta.exe
+          fi
+
+          ls -la karttapullautin/
+
+      # -----------------------------------------------------------------------
+      - name: Configure
+        shell: bash
+        run: |
+          cmake -B build -S KarttaGUI \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="${Qt6_DIR}" \
+            -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/AppDist" \
+            -G Ninja
+
+      # -----------------------------------------------------------------------
+      - name: Build
+        run: cmake --build build --parallel
+
+      # -----------------------------------------------------------------------
+      # This also runs windeployqt automatically, per the install(CODE ...)
+      # step already in KarttaGUI/CMakeLists.txt.
+      - name: Install into AppDist
+        run: cmake --install build
+
+      - name: Inspect AppDist contents
+        shell: bash
+        run: |
+          echo "AppDist/bin contents:"
+          find AppDist -maxdepth 2 || true
+
+      # -----------------------------------------------------------------------
+      - name: Determine version from tag
+        id: version
+        shell: bash
+        run: |
+          RAW_TAG="${GITHUB_REF_NAME:-0.0.0-dev}"
+          VERSION="${RAW_TAG#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------------------
+      # windows-latest ships Inno Setup preinstalled; no separate install step
+      # needed. installer/KarttaGUI.iss expects AppDist/, LICENSE.txt and
+      # LGPL_License.txt at the repo root (one level up from installer/).
+      - name: Build installer with Inno Setup
+        shell: cmd
+        run: |
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\KarttaGUI.iss /DMyAppVersion=${{ steps.version.outputs.version }}
+
+      # -----------------------------------------------------------------------
+      - name: Upload installer as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KarttaGUI-windows-installer
+          path: installer/InstallerOutput/*.exe
+
+      # -----------------------------------------------------------------------
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer/InstallerOutput/*.exe
+          draft: false
+          prerelease: false
