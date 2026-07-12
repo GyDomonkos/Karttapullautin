@@ -86,9 +86,17 @@ jobs:
         run: cmake --install build
 
       # -----------------------------------------------------------------------
-      # linuxdeploy bundles the Qt libraries and platform plugins needed to
-      # run KarttaGUI on machines that don't have Qt installed.
-      # The Qt plugin handles Qt-specific dependencies automatically.
+      # appimagetool scans every binary in AppDir to determine architecture.
+      # The karttapullautin/ folder contains pullauta.exe (Windows PE32) which
+      # makes appimagetool think multiple architectures are present and abort.
+      # Remove all Windows executables — they are not needed in the AppImage.
+      # -----------------------------------------------------------------------
+      - name: Remove Windows binaries from AppDir
+        run: find AppDir -name "*.exe" -delete
+
+      # -----------------------------------------------------------------------
+      # linuxdeploy bundles Qt libraries and platform plugins so KarttaGUI
+      # runs on machines that don't have Qt installed.
       # -----------------------------------------------------------------------
       - name: Download linuxdeploy + Qt plugin
         run: |
@@ -101,10 +109,10 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Create AppImage
         env:
-          ARCH: x86_64   # required by appimagetool — must match the runner
+          ARCH: x86_64        # required by appimagetool — must match the runner
           QMAKE: /usr/bin/qmake6
           QT_QPA_PLATFORM_PLUGIN_PATH: /usr/lib/x86_64-linux-gnu/qt6/plugins/platforms
-          OUTPUT: KarttaGUI-${{ github.ref_name }}-linux-x86_64.AppImage
+          LDAI_OUTPUT: KarttaGUI-${{ github.ref_name }}-linux-x86_64.AppImage
         run: |
           ./linuxdeploy.AppImage \
             --appdir AppDir \
