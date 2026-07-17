@@ -12,6 +12,8 @@ jobs:
   build-linux:
     runs-on: ubuntu-22.04   # Ubuntu 22.04 gives a glibc version (2.35) that
                              # runs on most modern Linux distributions.
+    permissions:
+      contents: write
 
     steps:
       # -----------------------------------------------------------------------
