@@ -1,4 +1,5 @@
 #include "SettingsPanel.h"
+#include "KarttaRunner.h"
 
 #include <QScrollArea>
 #include <QVBoxLayout>
@@ -20,6 +21,7 @@
 #include <QJsonArray>
 #include <QRegularExpression>
 #include "PresetManager.h"
+#include <qcoreapplication.h>
 
 
 SettingsPanel::SettingsPanel(QWidget* parent)
@@ -394,7 +396,21 @@ void SettingsPanel::resetToDefaults()
 // --------------------------------------------------------------------------
 void SettingsPanel::loadFromIni(const QString& iniPath)
 {
+    // If the INI file doesn't exist, try to run the Karttapullautin executable to generate it
     QFile file(iniPath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)){
+        const QString baseDir = QCoreApplication::applicationDirPath() + "/karttapullautin";
+        const QString iniPath = baseDir + "/pullauta.ini";
+        KarttaRunner *runner = new KarttaRunner(this);
+        #ifdef Q_OS_WIN
+            const QString executable = baseDir + "/pullauta.exe";
+        #else
+            const QString executable = baseDir + "/pullauta";
+        #endif
+
+        runner->run(executable, QStringList());
+    }
+    
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
         return;
 
